@@ -2024,9 +2024,16 @@ body {
 /* Mobile adjustments for image view */
 @media (max-width: 768px) {
     .main-content.image-view .search-container {
-        margin-left: 0;
-        bottom: 16px;
+        position: fixed !important;
+        margin-left: 0 !important;
+        left: 50% !important;
+        transform: translateX(-50%) !important;
+        bottom: 16px !important;
+        top: auto !important;
         width: calc(100% - 32px);
+        max-width: 560px;
+        padding: 0 !important;
+        background: transparent !important;
     }
 
     .main-content.image-view .image-gallery {

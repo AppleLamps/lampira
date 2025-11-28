@@ -275,12 +275,22 @@ export const switchView = (view) => {
     const brandTitle = $('.brand-title');
     const imageGallery = $('.image-gallery');
     const mainContent = $('.main-content');
+    const searchContainer = $('.search-container');
 
     if (view === 'images') {
         if (messageContainer) messageContainer.style.display = 'none';
         if (brandTitle) brandTitle.style.display = 'none';
         if (imageGallery) imageGallery.style.display = 'block';
         if (mainContent) addClass(mainContent, 'image-view');
+        // Clear any inline styles on search container set by chat mode
+        if (searchContainer) {
+            searchContainer.style.position = '';
+            searchContainer.style.bottom = '';
+            searchContainer.style.top = '';
+            searchContainer.style.backgroundColor = '';
+            searchContainer.style.paddingTop = '';
+            searchContainer.style.paddingBottom = '';
+        }
     } else {
         if (imageGallery) imageGallery.style.display = 'none';
         if (mainContent) removeClass(mainContent, 'image-view');

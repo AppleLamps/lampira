@@ -195,7 +195,7 @@ export const sendUserMessage = async (content, options = {}) => {
 
                     // Generate follow-up suggestions only in web search mode
                     if (webSearchEnabled) {
-                        generateFollowUpSuggestions(fullContent, assistantMessage);
+                        generateFollowUpSuggestions(fullContent, assistantMessage, content);
                     }
                 },
                 onError: (error) => {
@@ -289,17 +289,18 @@ export const editAndResend = async (messageId, newContent) => {
 };
 
 /**
- * Generate follow-up suggestions based on the AI response
+ * Generate follow-up suggestions based on the AI response using AI
  * @param {string} aiResponse - The AI's response content
  * @param {Object} message - The assistant message object
+ * @param {string} userQuestion - The original user question
  */
-const generateFollowUpSuggestions = async (aiResponse, message) => {
+const generateFollowUpSuggestions = async (aiResponse, message, userQuestion) => {
     // Don't generate suggestions for very short responses
     if (aiResponse.length < 100) return;
 
     try {
-        // Extract key topics from the response to generate relevant follow-ups
-        const suggestions = extractFollowUpSuggestions(aiResponse);
+        // Use AI to generate contextual follow-up questions
+        const suggestions = await generateAIFollowUpSuggestions(userQuestion, aiResponse);
 
         if (suggestions.length > 0) {
             eventBus.emit(Events.AI_SUGGESTIONS, {
@@ -309,50 +310,90 @@ const generateFollowUpSuggestions = async (aiResponse, message) => {
         }
     } catch (error) {
         console.warn('Failed to generate follow-up suggestions:', error);
+        // Fallback to heuristic-based suggestions
+        const fallbackSuggestions = extractFollowUpSuggestionsFallback(aiResponse);
+        if (fallbackSuggestions.length > 0) {
+            eventBus.emit(Events.AI_SUGGESTIONS, {
+                messageId: message.id,
+                suggestions: fallbackSuggestions
+            });
+        }
     }
 };
 
 /**
- * Extract follow-up suggestions from AI response content
- * Uses heuristics to generate relevant follow-up questions
+ * Generate follow-up suggestions using a lightweight AI model
+ * @param {string} userQuestion - The original user question
+ * @param {string} aiResponse - The AI's response content
+ * @returns {Promise<Array<string>>} Follow-up suggestions
+ */
+const generateAIFollowUpSuggestions = async (userQuestion, aiResponse) => {
+    // Truncate response to keep tokens low (use first ~1500 chars)
+    const truncatedResponse = aiResponse.length > 1500
+        ? aiResponse.substring(0, 1500) + '...'
+        : aiResponse;
+
+    const prompt = `Based on this Q&A, generate exactly 3 natural follow-up questions a curious user might ask next. Questions should be specific to the topic discussed, not generic.
+
+User's Question: ${userQuestion}
+
+Answer Summary: ${truncatedResponse}
+
+Return ONLY the 3 questions, one per line, no numbering or bullets.`;
+
+    const messages = [
+        { role: 'user', content: prompt }
+    ];
+
+    // Use a fast, cheap model for generating suggestions
+    const followUpModel = 'x-ai/grok-3-fast';
+
+    const response = await sendMessage(messages, followUpModel, {
+        max_tokens: 150,
+        temperature: 0.7
+    });
+
+    const content = response.choices?.[0]?.message?.content || '';
+
+    // Parse the response into individual questions
+    const questions = content
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line.length > 10 && line.endsWith('?'))
+        .slice(0, 3);
+
+    return questions;
+};
+
+/**
+ * Fallback: Extract follow-up suggestions using heuristics
  * @param {string} content - AI response content
  * @returns {Array<string>} Follow-up suggestions
  */
-const extractFollowUpSuggestions = (content) => {
+const extractFollowUpSuggestionsFallback = (content) => {
     const suggestions = [];
-
-    // Extract the main topic by looking at the first paragraph or heading
-    const firstParagraph = content.split('\n').find(line => line.trim().length > 20) || '';
-
-    // Common follow-up patterns based on content analysis
     const contentLower = content.toLowerCase();
 
-    // Check for comparisons
     if (contentLower.includes('compared to') || contentLower.includes('versus') || contentLower.includes(' vs ')) {
         suggestions.push('What are the key differences in more detail?');
     }
 
-    // Check for lists or steps
     if (contentLower.includes('1.') || contentLower.includes('first,') || contentLower.includes('step ')) {
         suggestions.push('Can you explain the most important step?');
     }
 
-    // Check for technical content
     if (contentLower.includes('function') || contentLower.includes('code') || contentLower.includes('implementation')) {
         suggestions.push('Can you show a code example?');
     }
 
-    // Check for concepts that might need more explanation
     if (contentLower.includes('however') || contentLower.includes('although') || contentLower.includes('but ')) {
         suggestions.push('What are the main limitations or drawbacks?');
     }
 
-    // Check for recommendations
     if (contentLower.includes('recommend') || contentLower.includes('suggest') || contentLower.includes('best practice')) {
         suggestions.push('What are alternative approaches?');
     }
 
-    // Generic follow-ups if we don't have enough specific ones
     if (suggestions.length < 2) {
         suggestions.push('Can you elaborate on this topic?');
     }
@@ -360,7 +401,6 @@ const extractFollowUpSuggestions = (content) => {
         suggestions.push('What are practical applications of this?');
     }
 
-    // Return up to 3 suggestions
     return suggestions.slice(0, 3);
 };
 

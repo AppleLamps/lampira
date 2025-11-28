@@ -1,0 +1,39 @@
+/**
+ * Lampira AI - UI Component
+ * Notifications and general UI elements
+ */
+
+/* ============ Notifications ============ */
+.notification {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    padding: 12px 20px;
+    border-radius: 8px;
+    background: #111111;
+    color: #ffffff;
+    font-size: 14px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    transform: translateY(100px);
+    opacity: 0;
+    transition: transform 0.3s ease, opacity 0.3s ease;
+    z-index: 1000;
+    max-width: 400px;
+}
+
+.notification.show {
+    transform: translateY(0);
+    opacity: 1;
+}
+
+.notification-error {
+    background: #dc2626;
+}
+
+.notification-success {
+    background: #16a34a;
+}
+
+.notification-warning {
+    background: #d97706;
+}

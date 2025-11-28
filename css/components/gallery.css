@@ -1,0 +1,272 @@
+/**
+ * Lampira AI - Gallery Component
+ * Image gallery, cards, placeholders, and error states
+ */
+
+/* ============ Image Gallery ============ */
+.image-gallery {
+    column-count: 1;
+    column-gap: 20px;
+    padding: 20px;
+    max-width: 1200px;
+    margin: 0 auto;
+    width: 100%;
+}
+
+@media (min-width: 768px) {
+    .image-gallery {
+        column-count: 2;
+    }
+}
+
+@media (min-width: 1200px) {
+    .image-gallery {
+        column-count: 3;
+    }
+}
+
+/* ============ Gallery Empty State ============ */
+.image-gallery-empty {
+    column-span: all;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 20px;
+    text-align: center;
+    color: var(--color-text-secondary);
+}
+
+.image-gallery-empty .empty-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+}
+
+.image-gallery-empty h3 {
+    font-size: 20px;
+    font-weight: 500;
+    margin-bottom: 8px;
+    color: var(--color-text-primary);
+}
+
+.image-gallery-empty p {
+    font-size: 14px;
+    max-width: 300px;
+}
+
+/* ============ Image Card ============ */
+.image-card {
+    break-inside: avoid;
+    margin-bottom: 16px;
+    border-radius: 12px;
+    overflow: hidden;
+    position: relative;
+    background: var(--color-bg-secondary);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+    cursor: pointer;
+    contain: layout style;
+}
+
+/* Reserve space before image loads to prevent layout shift */
+.image-card:not(.loaded) {
+    aspect-ratio: 4/3;
+    min-height: 200px;
+}
+
+/* Remove aspect-ratio constraint once loaded to show natural dimensions */
+.image-card.loaded {
+    aspect-ratio: auto;
+    min-height: auto;
+}
+
+.image-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+.image-card img {
+    width: 100%;
+    height: auto;
+    display: block;
+    opacity: 0;
+    transition: opacity 0.3s ease-out;
+}
+
+.image-card.loaded img {
+    opacity: 1;
+}
+
+.image-card.error img {
+    opacity: 0.5;
+}
+
+/* ============ Image Overlay ============ */
+.image-overlay {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 16px;
+    background: linear-gradient(transparent, rgba(0, 0, 0, 0.8));
+    opacity: 0;
+    transition: opacity var(--transition-fast);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.image-card:hover .image-overlay {
+    opacity: 1;
+}
+
+.image-prompt {
+    color: #fff;
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.image-prompt .prompt-text {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+/* ============ Image Actions ============ */
+.image-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.image-action-btn {
+    width: 32px;
+    height: 32px;
+    border: none;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.2);
+    color: #fff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color var(--transition-fast);
+}
+
+.image-action-btn:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+/* Delete button - red on hover */
+.image-action-btn-delete:hover {
+    background: rgba(239, 68, 68, 0.8);
+}
+
+/* ============ Image Placeholder with Golden Shimmer ============ */
+.image-card-placeholder {
+    min-height: 200px;
+    aspect-ratio: 4/3;
+    background: var(--color-bg-secondary);
+    contain: layout style;
+}
+
+/* Fade out placeholder when replacing */
+.image-card-placeholder.replacing {
+    animation: fadeOutPlaceholder 0.3s ease-out forwards;
+}
+
+@keyframes fadeOutPlaceholder {
+    to {
+        opacity: 0;
+        transform: scale(0.98);
+    }
+}
+
+.image-shimmer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(-45deg,
+            #f5f5f5 0%,
+            #ffd700 25%,
+            #ffec8b 50%,
+            #ffd700 75%,
+            #f5f5f5 100%);
+    background-size: 400% 400%;
+    animation: goldenShimmer 2s ease infinite;
+}
+
+@keyframes goldenShimmer {
+    0% {
+        background-position: 0% 50%;
+    }
+
+    50% {
+        background-position: 100% 50%;
+    }
+
+    100% {
+        background-position: 0% 50%;
+    }
+}
+
+.image-card-placeholder .image-prompt {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 16px;
+    background: linear-gradient(transparent, rgba(0, 0, 0, 0.6));
+    z-index: 1;
+}
+
+/* ============ Image Error State ============ */
+.image-card-error {
+    background: #fef2f2;
+}
+
+.image-error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    text-align: center;
+    color: #b91c1c;
+}
+
+.image-error .error-icon {
+    font-size: 24px;
+    margin-bottom: 8px;
+}
+
+.image-error .error-text {
+    font-size: 12px;
+}
+
+/* ============ View Transitions ============ */
+.message-container,
+.image-gallery,
+.brand-title {
+    transition: opacity 0.2s ease;
+}
+
+/* ============ Gallery Responsive ============ */
+@media (max-width: 768px) {
+    .image-gallery {
+        column-count: 2;
+        padding: 12px;
+        column-gap: 12px;
+    }
+
+    .image-card {
+        margin-bottom: 12px;
+    }
+
+    .image-card-placeholder {
+        min-height: 150px;
+    }
+}

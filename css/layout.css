@@ -1,0 +1,146 @@
+/**
+ * Lampira AI - Layout Styles
+ * App container, main content, and responsive layout
+ */
+
+/* ============ App Container ============ */
+.app-container {
+    display: flex;
+    min-height: 100vh;
+    width: 100%;
+}
+
+/* ============ Sidebar Backdrop (Mobile) ============ */
+.sidebar-backdrop {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--backdrop-color);
+    z-index: var(--z-backdrop);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity var(--transition-normal), visibility var(--transition-normal);
+}
+
+.sidebar-backdrop.visible {
+    opacity: 1;
+    visibility: visible;
+}
+
+/* ============ Main Content ============ */
+.main-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background-color: #ffffff;
+    overflow-y: auto;
+    position: relative;
+    margin-left: 200px;
+    transition: margin-left 0.3s ease;
+}
+
+.main-content.sidebar-collapsed {
+    margin-left: 48px;
+}
+
+.brand-title {
+    font-family: 'Cormorant Garamond', Georgia, serif;
+    font-size: 52px;
+    font-weight: 400;
+    color: #57534e;
+    margin-bottom: 32px;
+    letter-spacing: 0.02em;
+    font-style: italic;
+}
+
+/* ============ Image View Layout ============ */
+.main-content.image-view {
+    justify-content: flex-start;
+    padding-top: 20px;
+}
+
+.main-content.image-view .search-container {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 50;
+    max-width: 560px;
+    width: calc(100% - 48px);
+    margin-left: calc(var(--sidebar-width) / 2);
+    background: transparent;
+}
+
+.main-content.sidebar-collapsed.image-view .search-container {
+    margin-left: calc(var(--sidebar-collapsed-width) / 2);
+}
+
+.main-content.image-view .brand-title {
+    display: none !important;
+}
+
+/* Adjust image gallery to not overlap with search box */
+.main-content.image-view .image-gallery {
+    padding-bottom: 120px;
+}
+
+/* ============ Responsive Layout ============ */
+@media (max-width: 768px) {
+
+    /* Sidebar backdrop visible on mobile */
+    .sidebar-backdrop {
+        display: block;
+    }
+
+    /* Main content full width on mobile */
+    .main-content {
+        margin-left: 0 !important;
+        padding-top: 70px;
+        /* Space for menu button */
+    }
+
+    .main-content.sidebar-collapsed {
+        margin-left: 0 !important;
+    }
+
+    /* Brand title smaller on mobile */
+    .brand-title {
+        font-size: 36px;
+    }
+
+    /* Mobile adjustments for image view */
+    .main-content.image-view .search-container {
+        position: fixed !important;
+        margin-left: 0 !important;
+        left: 50% !important;
+        transform: translateX(-50%) !important;
+        bottom: 16px !important;
+        top: auto !important;
+        width: calc(100% - 32px);
+        max-width: 560px;
+        padding: 0 !important;
+        background: transparent !important;
+    }
+
+    .main-content.image-view .image-gallery {
+        padding-bottom: 100px;
+    }
+}
+
+/* Extra small devices */
+@media (max-width: 480px) {
+    .main-content {
+        padding: 12px;
+        padding-top: 60px;
+    }
+
+    .brand-title {
+        font-size: 28px;
+    }
+}

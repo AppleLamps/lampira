@@ -8,10 +8,11 @@ import config from '../config.js';
 
 /**
  * Build web search configuration for request
+ * @param {boolean} enabled - Whether web search is enabled for this request
  * @returns {Object} Web search options to merge into request
  */
-const getWebSearchConfig = () => {
-    if (!config.webSearch?.enabled) {
+const getWebSearchConfig = (enabled = false) => {
+    if (!enabled) {
         return {};
     }
 
@@ -41,17 +42,18 @@ const getWebSearchConfig = () => {
  * Send a chat completion request
  * @param {Array} messages - Array of message objects {role, content}
  * @param {string} model - Model ID to use
- * @param {Object} options - Additional options
+ * @param {Object} options - Additional options (includes webSearchEnabled)
  * @returns {Promise<Object>}
  */
 export const sendMessage = async (messages, model = config.defaultModel, options = {}) => {
-    const webSearchConfig = getWebSearchConfig();
+    const { webSearchEnabled, ...restOptions } = options;
+    const webSearchConfig = getWebSearchConfig(webSearchEnabled);
 
     const body = {
         model,
         messages,
         ...webSearchConfig,
-        ...options
+        ...restOptions
     };
 
     const response = await fetchJSON('/chat', {
@@ -67,17 +69,18 @@ export const sendMessage = async (messages, model = config.defaultModel, options
  * @param {Array} messages - Array of message objects {role, content}
  * @param {string} model - Model ID to use
  * @param {Object} callbacks - Callback functions {onChunk, onComplete, onError, onProcessing, onAnnotations}
- * @param {Object} options - Additional options
+ * @param {Object} options - Additional options (includes webSearchEnabled)
  * @param {AbortController} abortController - Optional abort controller for cancellation
  */
 export const sendMessageStream = async (messages, model = config.defaultModel, callbacks = {}, options = {}, abortController = null) => {
-    const webSearchConfig = getWebSearchConfig();
+    const { webSearchEnabled, ...restOptions } = options;
+    const webSearchConfig = getWebSearchConfig(webSearchEnabled);
 
     const body = {
         model,
         messages,
         ...webSearchConfig,
-        ...options
+        ...restOptions
     };
 
     await fetchStream('/chat', body, callbacks, abortController);
@@ -112,7 +115,7 @@ export const getModelDetails = async (modelId) => {
 
 /**
  * Format messages for API request
- * Handles multimodal content (text + images)
+ * Handles multimodal content (text + images + PDFs)
  * @param {Array} history - Chat history
  * @param {string} systemPrompt - Optional system prompt
  * @returns {Array}
@@ -130,8 +133,11 @@ export const formatMessages = (history, systemPrompt = config.chat.systemPrompt)
 
     // Add conversation history
     history.forEach(msg => {
-        // Check if message has images (multimodal)
-        if (msg.images && msg.images.length > 0) {
+        const hasImages = msg.images && msg.images.length > 0;
+        const hasPDFs = msg.pdfs && msg.pdfs.length > 0;
+
+        // Check if message has multimodal content
+        if (hasImages || hasPDFs) {
             // Build multimodal content array
             const content = [];
 
@@ -144,14 +150,29 @@ export const formatMessages = (history, systemPrompt = config.chat.systemPrompt)
             }
 
             // Then images
-            msg.images.forEach(imageUrl => {
-                content.push({
-                    type: 'image_url',
-                    image_url: {
-                        url: imageUrl
-                    }
+            if (hasImages) {
+                msg.images.forEach(imageUrl => {
+                    content.push({
+                        type: 'image_url',
+                        image_url: {
+                            url: imageUrl
+                        }
+                    });
                 });
-            });
+            }
+
+            // Then PDFs (using OpenRouter file content type)
+            if (hasPDFs) {
+                msg.pdfs.forEach(pdf => {
+                    content.push({
+                        type: 'file',
+                        file: {
+                            filename: pdf.filename,
+                            file_data: pdf.data
+                        }
+                    });
+                });
+            }
 
             messages.push({
                 role: msg.role,

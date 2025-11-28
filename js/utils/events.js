@@ -116,10 +116,17 @@ export const Events = {
     SIDEBAR_TOGGLE: 'sidebar:toggle',
     LOADING_START: 'loading:start',
     LOADING_END: 'loading:end',
+    VIEW_CHANGED: 'view:changed',
+    WEB_SEARCH_TOGGLE: 'websearch:toggle',
 
     // Storage events
     CHAT_SAVED: 'chat:saved',
-    SETTINGS_CHANGED: 'settings:changed'
+    SETTINGS_CHANGED: 'settings:changed',
+
+    // Image generation events
+    IMAGE_GEN_START: 'image:gen:start',
+    IMAGE_GEN_COMPLETE: 'image:gen:complete',
+    IMAGE_GEN_ERROR: 'image:gen:error'
 };
 
 export { eventBus, EventBus };

@@ -75,11 +75,88 @@ const sanitizeHtml = (html) => {
 };
 
 /**
- * Parse markdown to HTML
+ * Remove inline sources section from content
+ * The sources are displayed in a separate UI component, so we strip them from the markdown
  * @param {string} markdown - Markdown text
  * @returns {string}
  */
-export const parseMarkdown = (markdown) => {
+const stripInlineSources = (markdown) => {
+    if (!markdown) return '';
+
+    // Remove "Sources:" section and everything after it (commonly at the end of responses)
+    // Matches various formats: "Sources:", "**Sources:**", "### Sources", "## Sources", etc.
+    // Also handles lists of undefined links that follow
+    const sourcesPatterns = [
+        // Match "Sources:" header and following list items (including undefined links)
+        /\n+(?:\*\*)?(?:#{0,3}\s*)?Sources:?\*?\*?\s*\n(?:[-*•]\s*(?:\[(?:undefined|.*?)\]\(.*?\)|.*?)\n?)*/gi,
+        // Match standalone "Sources:" with bullet list of links
+        /\n+Sources:\s*\n(?:[-*•]\s*\[.*?\]\(.*?\)\s*\n?)*/gi,
+        // Match just a list of undefined links at the end
+        /\n+(?:[-*•]\s*\[undefined\]\(.*?\)\s*\n?)+$/gi
+    ];
+
+    let result = markdown;
+    for (const pattern of sourcesPatterns) {
+        result = result.replace(pattern, '\n');
+    }
+
+    return result.trim();
+};
+
+/**
+ * Replace undefined inline citations with proper source numbers or remove them
+ * Handles patterns like [undefined](url) and replaces with numbered citations
+ * @param {string} markdown - Markdown text
+ * @param {Array} sources - Array of source objects with url and title
+ * @returns {string}
+ */
+const fixInlineCitations = (markdown, sources = []) => {
+    if (!markdown) return '';
+
+    // Build a map of URLs to source numbers
+    const urlToNumber = new Map();
+    if (sources && sources.length > 0) {
+        sources.forEach((source, index) => {
+            if (source.url) {
+                urlToNumber.set(source.url, index + 1);
+            }
+        });
+    }
+
+    // Replace [undefined](url) or [text](url) patterns with numbered citations
+    // This regex matches markdown links
+    let result = markdown.replace(/\[([^\]]*)\]\(([^)]+)\)/g, (match, text, url) => {
+        // If the text is "undefined" or empty, try to replace with source number
+        if (text === 'undefined' || text === '' || text === 'null') {
+            const sourceNum = urlToNumber.get(url);
+            if (sourceNum) {
+                // Replace with a superscript-style citation number
+                return `[${sourceNum}](${url})`;
+            }
+            // If URL not in sources, just remove the undefined link entirely
+            return '';
+        }
+        // Keep the original link if it has proper text
+        return match;
+    });
+
+    // Also clean up any remaining standalone "undefined" text that might appear
+    // (but be careful not to remove legitimate uses of the word)
+    result = result.replace(/\s*\bundefined\b(?:\s*[;,.]?\s*)?(?=\s|$|\n)/gi, ' ');
+
+    // Clean up multiple spaces
+    result = result.replace(/  +/g, ' ');
+
+    return result.trim();
+};
+
+/**
+ * Parse markdown to HTML
+ * @param {string} markdown - Markdown text
+ * @param {Array} sources - Optional array of sources for citation fixing
+ * @returns {string}
+ */
+export const parseMarkdown = (markdown, sources = []) => {
     if (!markdown) return '';
 
     // Configure marked on first use
@@ -87,19 +164,25 @@ export const parseMarkdown = (markdown) => {
         markedConfigured = configureMarked();
     }
 
+    // Fix inline citations (replace undefined with source numbers)
+    let cleanedMarkdown = fixInlineCitations(markdown, sources);
+
+    // Strip inline sources section (displayed separately in UI)
+    cleanedMarkdown = stripInlineSources(cleanedMarkdown);
+
     // Use marked if available
     if (typeof window.marked !== 'undefined') {
         try {
-            const html = window.marked.parse(markdown);
+            const html = window.marked.parse(cleanedMarkdown);
             return sanitizeHtml(html);
         } catch (error) {
             console.error('Marked parsing error:', error);
-            return escapeHtml(markdown);
+            return escapeHtml(cleanedMarkdown);
         }
     }
 
     // Fallback: return escaped text if marked not available
-    return escapeHtml(markdown).replace(/\n/g, '<br>');
+    return escapeHtml(cleanedMarkdown).replace(/\n/g, '<br>');
 };
 
 /**

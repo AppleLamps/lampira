@@ -7,7 +7,7 @@ import { $, $$, createElement, addClass, removeClass, toggleClass } from '../uti
 import eventBus, { Events } from '../utils/events.js';
 import { getChatList, loadChat, deleteChat } from '../services/storage.js';
 import { clearHistory, loadChatHistory, getCurrentChatId } from '../services/chat.js';
-import { createChatIcon, TRASH_PATH } from '../utils/icons.js';
+import { createChatIcon, TRASH_PATH, IMAGE_PATH } from '../utils/icons.js';
 
 // DOM Elements
 let sidebar;
@@ -16,6 +16,10 @@ let chatHistoryContainer;
 let collapseBtn;
 let menuBtn;
 let backdrop;
+let imageGenNavItem;
+
+// Current view state
+let currentView = 'chat';
 
 // Mobile breakpoint
 const MOBILE_BREAKPOINT = 768;
@@ -39,6 +43,9 @@ export const init = () => {
 
     // Create backdrop for mobile overlay
     createBackdrop();
+
+    // Create Image Generation nav item
+    createImageGenNavItem();
 
     // Create chat history container if it doesn't exist
     chatHistoryContainer = $('.chat-history');
@@ -101,6 +108,51 @@ const createBackdrop = () => {
         backdrop = createElement('div', { className: 'sidebar-backdrop' });
         document.body.appendChild(backdrop);
     }
+};
+
+/**
+ * Create Image Generation nav item
+ */
+const createImageGenNavItem = () => {
+    const navSection = $('.nav-section');
+    const divider = $('.nav-divider');
+
+    if (!navSection || !divider) return;
+
+    // Check if it already exists
+    if ($('.nav-item-image-gen')) return;
+
+    // Find the API nav item (first item after divider)
+    const apiNavItem = divider.nextElementSibling;
+
+    // Create Image Generation nav item
+    imageGenNavItem = createElement('a', {
+        href: '#',
+        className: 'nav-item nav-item-image-gen'
+    });
+    imageGenNavItem.innerHTML = `
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${IMAGE_PATH}</svg>
+        <span>Create Image</span>
+    `;
+
+    // Insert before API link
+    if (apiNavItem) {
+        navSection.insertBefore(imageGenNavItem, apiNavItem);
+    } else {
+        // Fallback: insert after divider
+        divider.insertAdjacentElement('afterend', imageGenNavItem);
+    }
+
+    // Add click handler
+    imageGenNavItem.addEventListener('click', (e) => {
+        e.preventDefault();
+        switchView('images');
+
+        // Close mobile sidebar if open
+        if (isMobile()) {
+            closeMobileSidebar();
+        }
+    });
 };
 
 /**
@@ -178,6 +230,9 @@ const handleResize = () => {
  * Handle new chat creation
  */
 const handleNewChat = () => {
+    // Switch to chat view first
+    switchView('chat');
+
     clearHistory();
 
     // Remove active state from chat history items
@@ -192,6 +247,63 @@ const handleNewChat = () => {
     const searchInput = $('.search-input');
     if (searchInput) searchInput.focus();
 };
+
+/**
+ * Switch between views (chat/images)
+ * @param {string} view - 'chat' or 'images'
+ */
+export const switchView = (view) => {
+    if (currentView === view) return;
+
+    currentView = view;
+
+    // Update active states in sidebar
+    if (view === 'images') {
+        removeClass(newChatBtn, 'active');
+        if (imageGenNavItem) addClass(imageGenNavItem, 'active');
+        $$('.chat-history-item').forEach(item => removeClass(item, 'active'));
+    } else {
+        if (imageGenNavItem) removeClass(imageGenNavItem, 'active');
+        // Re-add active to New Chat only if no chat is selected
+        if (!$('.chat-history-item.active')) {
+            addClass(newChatBtn, 'active');
+        }
+    }
+
+    // Show/hide containers
+    const messageContainer = $('.message-container');
+    const brandTitle = $('.brand-title');
+    const imageGallery = $('.image-gallery');
+    const mainContent = $('.main-content');
+
+    if (view === 'images') {
+        if (messageContainer) messageContainer.style.display = 'none';
+        if (brandTitle) brandTitle.style.display = 'none';
+        if (imageGallery) imageGallery.style.display = 'block';
+        if (mainContent) addClass(mainContent, 'image-view');
+    } else {
+        if (imageGallery) imageGallery.style.display = 'none';
+        if (mainContent) removeClass(mainContent, 'image-view');
+        // Show brand title or message container based on chat state
+        const hasMessages = messageContainer && messageContainer.children.length > 0;
+        if (hasMessages) {
+            if (messageContainer) messageContainer.style.display = 'flex';
+            if (brandTitle) brandTitle.style.display = 'none';
+        } else {
+            if (messageContainer) messageContainer.style.display = 'none';
+            if (brandTitle) brandTitle.style.display = '';
+        }
+    }
+
+    // Emit view changed event
+    eventBus.emit(Events.VIEW_CHANGED, { view });
+};
+
+/**
+ * Get current view
+ * @returns {string}
+ */
+export const getCurrentView = () => currentView;
 
 /**
  * Open mobile sidebar (overlay mode)
@@ -399,12 +511,18 @@ const handleDeleteChat = (chatId) => {
 const handleChatSelect = (chatId) => {
     const chat = loadChat(chatId);
     if (chat) {
+        // Switch to chat view first
+        switchView('chat');
+
         loadChatHistory(chatId, chat.messages);
 
         // Update active state
         $$('.chat-history-item').forEach(item => {
             toggleClass(item, 'active', item.dataset.chatId === chatId);
         });
+
+        // Remove active from New Chat button when a chat is selected
+        removeClass(newChatBtn, 'active');
 
         // Close mobile sidebar if open
         if (isMobile()) {
@@ -448,4 +566,4 @@ export const isOpen = () => {
     return sidebar?.classList.contains('open') || false;
 };
 
-export default { init, setSidebarVisible, isCollapsed, isOpen, renderChatHistory };
+export default { init, setSidebarVisible, isCollapsed, isOpen, renderChatHistory, getCurrentView, switchView };

@@ -7,7 +7,7 @@ import { $, $$, createElement, empty, scrollIntoView, addClass, removeClass } fr
 import eventBus, { Events } from '../utils/events.js';
 import { parseMarkdown, highlightCodeBlocks } from '../utils/markdown.js';
 import { getHistory, sendUserMessage } from '../services/chat.js';
-import { icons, USER_PATH, LOGO_PATH, SOURCES_PATH, CHEVRON_DOWN_PATH, COPY_PATH, CHECK_PATH } from '../utils/icons.js';
+import { icons, USER_PATH, LOGO_PATH, SOURCES_PATH, CHEVRON_DOWN_PATH, COPY_PATH, CHECK_PATH, DOCUMENT_PATH } from '../utils/icons.js';
 
 // DOM Elements
 let mainContent;
@@ -75,7 +75,7 @@ const handleStreaming = ({ chunk, fullContent, message }) => {
         addClass(messageEl, 'streaming');
         const contentEl = $('.message-content', messageEl);
         if (contentEl) {
-            contentEl.innerHTML = parseMarkdown(fullContent);
+            contentEl.innerHTML = parseMarkdown(fullContent, message.sources || []);
             // Note: We don't highlight during streaming for performance
         }
         scrollToBottom();
@@ -108,13 +108,19 @@ const handleComplete = ({ content, message, sources }) => {
         removeClass(messageEl, 'processing');
         const contentEl = $('.message-content', messageEl);
         if (contentEl) {
-            contentEl.innerHTML = parseMarkdown(content);
+            contentEl.innerHTML = parseMarkdown(content, sources || []);
             // Apply syntax highlighting to code blocks
             highlightCodeBlocks(contentEl);
             // Add copy buttons to code blocks
             addCopyButtonsToCodeBlocks(contentEl);
         }
-        // Render sources if available
+        // Add message actions (copy button) if not already present - before sources
+        const wrapper = $('.message-wrapper', messageEl);
+        if (wrapper && !$('.message-actions', wrapper)) {
+            const actionsEl = createMessageActions(message);
+            wrapper.appendChild(actionsEl);
+        }
+        // Render sources if available (after actions)
         if (sources && sources.length > 0) {
             renderSources(messageEl, sources);
         }
@@ -258,9 +264,23 @@ const renderMessage = (message, animate = true) => {
         content.appendChild(imagesContainer);
     }
 
+    // Render PDFs if present (user messages with PDF attachments)
+    if (message.pdfs && message.pdfs.length > 0) {
+        const pdfsContainer = createElement('div', { className: 'message-pdfs' });
+        message.pdfs.forEach(pdf => {
+            const pdfItem = createElement('div', { className: 'message-pdf' });
+            pdfItem.innerHTML = `
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="pdf-icon">${DOCUMENT_PATH}</svg>
+                <span class="pdf-filename" title="${escapeHtml(pdf.filename)}">${escapeHtml(pdf.filename)}</span>
+            `;
+            pdfsContainer.appendChild(pdfItem);
+        });
+        content.appendChild(pdfsContainer);
+    }
+
     if (message.content) {
         const textContent = createElement('div', { className: 'message-text' });
-        textContent.innerHTML = parseMarkdown(message.content);
+        textContent.innerHTML = parseMarkdown(message.content, message.sources || []);
         content.appendChild(textContent);
         // Apply syntax highlighting after adding to DOM (deferred)
         requestAnimationFrame(() => {
@@ -273,6 +293,12 @@ const renderMessage = (message, animate = true) => {
 
     wrapper.appendChild(roleLabel);
     wrapper.appendChild(content);
+
+    // Add message actions for assistant messages (copy button) - before sources
+    if (!isUser && message.content) {
+        const actionsEl = createMessageActions(message);
+        wrapper.appendChild(actionsEl);
+    }
 
     // Add sources if available (for loaded messages)
     if (message.sources && message.sources.length > 0) {
@@ -360,6 +386,47 @@ const createSourcesElement = (sources) => {
 };
 
 /**
+ * Create message actions element (copy button)
+ * @param {Object} message - Message object
+ * @returns {HTMLElement}
+ */
+const createMessageActions = (message) => {
+    const actionsContainer = createElement('div', { className: 'message-actions' });
+
+    // Copy button
+    const copyBtn = createElement('button', {
+        className: 'message-action-btn',
+        title: 'Copy response'
+    });
+    copyBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">${COPY_PATH}</svg><span>Copy</span>`;
+
+    copyBtn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        try {
+            await navigator.clipboard.writeText(message.content);
+
+            // Show copied feedback
+            copyBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">${CHECK_PATH}</svg><span>Copied!</span>`;
+            addClass(copyBtn, 'copied');
+
+            // Reset after delay
+            setTimeout(() => {
+                copyBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">${COPY_PATH}</svg><span>Copy</span>`;
+                removeClass(copyBtn, 'copied');
+            }, 2000);
+        } catch (err) {
+            console.error('Failed to copy:', err);
+            fallbackCopy(message.content);
+        }
+    });
+
+    actionsContainer.appendChild(copyBtn);
+    return actionsContainer;
+};
+
+/**
  * Render or update sources for a message
  * @param {HTMLElement} messageEl - Message element
  * @param {Array} sources - Array of sources
@@ -403,13 +470,14 @@ const scrollToBottom = () => {
  * Update a specific message content
  * @param {string} messageId
  * @param {string} content
+ * @param {Array} sources - Optional sources for citation fixing
  */
-export const updateMessageContent = (messageId, content) => {
+export const updateMessageContent = (messageId, content, sources = []) => {
     const messageEl = $(`[data-message-id="${messageId}"]`);
     if (messageEl) {
         const contentEl = $('.message-content', messageEl);
         if (contentEl) {
-            contentEl.innerHTML = parseMarkdown(content);
+            contentEl.innerHTML = parseMarkdown(content, sources);
             highlightCodeBlocks(contentEl);
             addCopyButtonsToCodeBlocks(contentEl);
         }

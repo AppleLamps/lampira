@@ -64,15 +64,17 @@ export const cancelCurrentRequest = () => {
  * @param {string} content - Message content
  * @param {Array} sources - Optional sources/citations
  * @param {Array} images - Optional images (base64 data URLs)
+ * @param {Array} pdfs - Optional PDFs (objects with data and filename)
  * @returns {Object} The added message
  */
-export const addMessage = (role, content, sources = [], images = []) => {
+export const addMessage = (role, content, sources = [], images = [], pdfs = []) => {
     const message = {
         id: Date.now().toString(36) + Math.random().toString(36).substr(2),
         role,
         content,
         sources,
         images: images || [],
+        pdfs: pdfs || [],
         timestamp: Date.now()
     };
 
@@ -134,7 +136,7 @@ export const saveCurrentChatToStorage = (title = null) => {
 /**
  * Send a message and get AI response
  * @param {string} content - User message content
- * @param {Object} options - Additional options (images array, stream boolean)
+ * @param {Object} options - Additional options (images array, pdfs array, stream boolean, webSearchEnabled boolean)
  * @returns {Promise<Object>}
  */
 export const sendUserMessage = async (content, options = {}) => {
@@ -143,8 +145,10 @@ export const sendUserMessage = async (content, options = {}) => {
     }
 
     const images = options.images || [];
+    const pdfs = options.pdfs || [];
+    const webSearchEnabled = options.webSearchEnabled || false;
 
-    if (!content.trim() && images.length === 0) {
+    if (!content.trim() && images.length === 0 && pdfs.length === 0) {
         throw new Error('Message cannot be empty');
     }
 
@@ -155,12 +159,17 @@ export const sendUserMessage = async (content, options = {}) => {
     currentAbortController = new AbortController();
 
     try {
-        // Add user message with images
-        const userMessage = addMessage('user', content, [], images);
+        // Add user message with images and PDFs
+        const userMessage = addMessage('user', content, [], images, pdfs);
         eventBus.emit(Events.MESSAGE_SEND, userMessage);
 
+        // Select system prompt based on web search mode
+        const systemPrompt = webSearchEnabled
+            ? config.chat.systemPromptWeb
+            : config.chat.systemPromptChat;
+
         // Prepare messages for API (with image support)
-        const messages = formatMessages(history, config.chat.systemPrompt);
+        const messages = formatMessages(history, systemPrompt);
         const model = getModel();
         const modelParams = getModelParams(model);
 
@@ -184,8 +193,10 @@ export const sendUserMessage = async (content, options = {}) => {
                     // Auto-save chat
                     saveCurrentChatToStorage();
 
-                    // Generate follow-up suggestions
-                    generateFollowUpSuggestions(fullContent, assistantMessage);
+                    // Generate follow-up suggestions only in web search mode
+                    if (webSearchEnabled) {
+                        generateFollowUpSuggestions(fullContent, assistantMessage);
+                    }
                 },
                 onError: (error) => {
                     // Remove empty assistant message on error
@@ -203,12 +214,12 @@ export const sendUserMessage = async (content, options = {}) => {
                     assistantMessage.sources = annotations;
                     eventBus.emit(Events.AI_SOURCES_UPDATED, { message: assistantMessage, sources: annotations });
                 }
-            }, modelParams, currentAbortController);
+            }, { ...modelParams, webSearchEnabled }, currentAbortController);
 
             return assistantMessage;
         } else {
             // Non-streaming request
-            const response = await sendMessage(messages, model, modelParams);
+            const response = await sendMessage(messages, model, { ...modelParams, webSearchEnabled });
             const aiContent = response.choices?.[0]?.message?.content || 'No response received';
 
             const assistantMessage = addMessage('assistant', aiContent);

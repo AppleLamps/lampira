@@ -11,6 +11,7 @@ import sidebar from './components/sidebar.js';
 import searchBox from './components/searchBox.js';
 import messageList from './components/messageList.js';
 import modelSelector from './components/modelSelector.js';
+import imageGallery from './components/imageGallery.js';
 
 // Services
 import { refreshModels } from './services/models.js';
@@ -27,6 +28,7 @@ const init = async () => {
         searchBox.init();
         messageList.init();
         modelSelector.init();
+        imageGallery.init();
 
         console.log('✅ Components initialized');
     } catch (error) {
@@ -62,6 +64,23 @@ const setupErrorHandler = () => {
             message = 'Rate limit exceeded. Please wait a moment and try again.';
         } else if (error.status === 402) {
             message = 'Insufficient credits. Please add credits to your OpenRouter account.';
+        } else if (error.message) {
+            message = error.message;
+        }
+
+        // Show error to user
+        showNotification(message, 'error');
+    });
+
+    eventBus.on(Events.IMAGE_GEN_ERROR, ({ error }) => {
+        console.error('Image Generation Error:', error);
+
+        let message = 'An error occurred while generating the image.';
+
+        if (error.status === 401) {
+            message = 'Invalid API key. Please check your Fal.ai API key.';
+        } else if (error.status === 429) {
+            message = 'Rate limit exceeded. Please wait a moment and try again.';
         } else if (error.message) {
             message = error.message;
         }

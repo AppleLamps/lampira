@@ -346,7 +346,7 @@ Return ONLY the 3 questions, one per line, no numbering or bullets.`;
     ];
 
     // Use a fast, cheap model for generating suggestions
-    const followUpModel = 'x-ai/grok-3-fast';
+    const followUpModel = 'x-ai/grok-code-fast-1';
 
     const response = await sendMessage(messages, followUpModel, {
         max_tokens: 150,

@@ -104,8 +104,8 @@ const stripInlineSources = (markdown) => {
 };
 
 /**
- * Replace undefined inline citations with proper source numbers or remove them
- * Handles patterns like [undefined](url) and replaces with numbered citations
+ * Remove inline citations completely
+ * Sources are displayed in a separate UI component, so we remove inline links entirely
  * @param {string} markdown - Markdown text
  * @param {Array} sources - Array of source objects with url and title
  * @returns {string}
@@ -113,39 +113,38 @@ const stripInlineSources = (markdown) => {
 const fixInlineCitations = (markdown, sources = []) => {
     if (!markdown) return '';
 
-    // Build a map of URLs to source numbers
-    const urlToNumber = new Map();
+    // Build a set of source URLs to identify citation links
+    const sourceUrls = new Set();
     if (sources && sources.length > 0) {
-        sources.forEach((source, index) => {
+        sources.forEach((source) => {
             if (source.url) {
-                urlToNumber.set(source.url, index + 1);
+                sourceUrls.add(source.url);
             }
         });
     }
 
-    // Replace [undefined](url) or [text](url) patterns with numbered citations
-    // This regex matches markdown links
+    // Remove citation links entirely - these are displayed in the sources cards
+    // Match [undefined](url), [number](url), or links that point to source URLs
     let result = markdown.replace(/\[([^\]]*)\]\(([^)]+)\)/g, (match, text, url) => {
-        // If the text is "undefined" or empty, try to replace with source number
-        if (text === 'undefined' || text === '' || text === 'null') {
-            const sourceNum = urlToNumber.get(url);
-            if (sourceNum) {
-                // Replace with a superscript-style citation number
-                return `[${sourceNum}](${url})`;
-            }
-            // If URL not in sources, just remove the undefined link entirely
+        // If the text is "undefined", empty, null, or just a number - remove it
+        if (text === 'undefined' || text === '' || text === 'null' || /^\d+$/.test(text)) {
             return '';
         }
-        // Keep the original link if it has proper text
+        // If the URL is a source URL, remove the link but keep the text (if meaningful)
+        if (sourceUrls.has(url)) {
+            return '';
+        }
+        // Keep other links (regular content links, not citations)
         return match;
     });
 
-    // Also clean up any remaining standalone "undefined" text that might appear
-    // (but be careful not to remove legitimate uses of the word)
+    // Also clean up any remaining standalone "undefined" text
     result = result.replace(/\s*\bundefined\b(?:\s*[;,.]?\s*)?(?=\s|$|\n)/gi, ' ');
 
-    // Clean up multiple spaces
+    // Clean up multiple spaces and trailing periods after removed citations
+    result = result.replace(/\s+\./g, '.');
     result = result.replace(/  +/g, ' ');
+    result = result.replace(/\.\s*\./g, '.');
 
     return result.trim();
 };

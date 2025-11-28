@@ -45,8 +45,14 @@ export const getIsLoading = () => isLoading;
  */
 export const cancelCurrentRequest = () => {
     if (currentAbortController) {
-        currentAbortController.abort();
+        try {
+            currentAbortController.abort();
+        } catch (e) {
+            console.warn('Error aborting request:', e);
+        }
         currentAbortController = null;
+        isLoading = false;
+        eventBus.emit(Events.LOADING_END);
         return true;
     }
     return false;
@@ -57,14 +63,16 @@ export const cancelCurrentRequest = () => {
  * @param {string} role - Message role (user/assistant)
  * @param {string} content - Message content
  * @param {Array} sources - Optional sources/citations
+ * @param {Array} images - Optional images (base64 data URLs)
  * @returns {Object} The added message
  */
-export const addMessage = (role, content, sources = []) => {
+export const addMessage = (role, content, sources = [], images = []) => {
     const message = {
         id: Date.now().toString(36) + Math.random().toString(36).substr(2),
         role,
         content,
         sources,
+        images: images || [],
         timestamp: Date.now()
     };
 
@@ -126,7 +134,7 @@ export const saveCurrentChatToStorage = (title = null) => {
 /**
  * Send a message and get AI response
  * @param {string} content - User message content
- * @param {Object} options - Additional options
+ * @param {Object} options - Additional options (images array, stream boolean)
  * @returns {Promise<Object>}
  */
 export const sendUserMessage = async (content, options = {}) => {
@@ -134,7 +142,9 @@ export const sendUserMessage = async (content, options = {}) => {
         throw new Error('Already processing a message');
     }
 
-    if (!content.trim()) {
+    const images = options.images || [];
+
+    if (!content.trim() && images.length === 0) {
         throw new Error('Message cannot be empty');
     }
 
@@ -145,11 +155,11 @@ export const sendUserMessage = async (content, options = {}) => {
     currentAbortController = new AbortController();
 
     try {
-        // Add user message
-        const userMessage = addMessage('user', content);
+        // Add user message with images
+        const userMessage = addMessage('user', content, [], images);
         eventBus.emit(Events.MESSAGE_SEND, userMessage);
 
-        // Prepare messages for API
+        // Prepare messages for API (with image support)
         const messages = formatMessages(history, config.chat.systemPrompt);
         const model = getModel();
         const modelParams = getModelParams(model);
@@ -173,6 +183,9 @@ export const sendUserMessage = async (content, options = {}) => {
 
                     // Auto-save chat
                     saveCurrentChatToStorage();
+
+                    // Generate follow-up suggestions
+                    generateFollowUpSuggestions(fullContent, assistantMessage);
                 },
                 onError: (error) => {
                     // Remove empty assistant message on error
@@ -262,6 +275,82 @@ export const editAndResend = async (messageId, newContent) => {
 
     // Send new message
     return sendUserMessage(newContent);
+};
+
+/**
+ * Generate follow-up suggestions based on the AI response
+ * @param {string} aiResponse - The AI's response content
+ * @param {Object} message - The assistant message object
+ */
+const generateFollowUpSuggestions = async (aiResponse, message) => {
+    // Don't generate suggestions for very short responses
+    if (aiResponse.length < 100) return;
+
+    try {
+        // Extract key topics from the response to generate relevant follow-ups
+        const suggestions = extractFollowUpSuggestions(aiResponse);
+
+        if (suggestions.length > 0) {
+            eventBus.emit(Events.AI_SUGGESTIONS, {
+                messageId: message.id,
+                suggestions
+            });
+        }
+    } catch (error) {
+        console.warn('Failed to generate follow-up suggestions:', error);
+    }
+};
+
+/**
+ * Extract follow-up suggestions from AI response content
+ * Uses heuristics to generate relevant follow-up questions
+ * @param {string} content - AI response content
+ * @returns {Array<string>} Follow-up suggestions
+ */
+const extractFollowUpSuggestions = (content) => {
+    const suggestions = [];
+
+    // Extract the main topic by looking at the first paragraph or heading
+    const firstParagraph = content.split('\n').find(line => line.trim().length > 20) || '';
+
+    // Common follow-up patterns based on content analysis
+    const contentLower = content.toLowerCase();
+
+    // Check for comparisons
+    if (contentLower.includes('compared to') || contentLower.includes('versus') || contentLower.includes(' vs ')) {
+        suggestions.push('What are the key differences in more detail?');
+    }
+
+    // Check for lists or steps
+    if (contentLower.includes('1.') || contentLower.includes('first,') || contentLower.includes('step ')) {
+        suggestions.push('Can you explain the most important step?');
+    }
+
+    // Check for technical content
+    if (contentLower.includes('function') || contentLower.includes('code') || contentLower.includes('implementation')) {
+        suggestions.push('Can you show a code example?');
+    }
+
+    // Check for concepts that might need more explanation
+    if (contentLower.includes('however') || contentLower.includes('although') || contentLower.includes('but ')) {
+        suggestions.push('What are the main limitations or drawbacks?');
+    }
+
+    // Check for recommendations
+    if (contentLower.includes('recommend') || contentLower.includes('suggest') || contentLower.includes('best practice')) {
+        suggestions.push('What are alternative approaches?');
+    }
+
+    // Generic follow-ups if we don't have enough specific ones
+    if (suggestions.length < 2) {
+        suggestions.push('Can you elaborate on this topic?');
+    }
+    if (suggestions.length < 3) {
+        suggestions.push('What are practical applications of this?');
+    }
+
+    // Return up to 3 suggestions
+    return suggestions.slice(0, 3);
 };
 
 export default {

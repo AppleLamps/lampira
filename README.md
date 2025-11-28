@@ -9,50 +9,49 @@ A fast, open-source AI research engine built with vanilla JavaScript. Lampira pr
 ## Features
 
 - **Real-time Web Search** — Powered by OpenRouter's web search plugin with native xAI integration
-- **Source Citations** — Every answer includes clickable source cards with favicons and domain info
+- **Source Citations** — Every answer includes collapsible source cards with favicons and domain info
 - **Streaming Responses** — Watch answers appear in real-time with SSE streaming
-- **Chat History** — Conversations are automatically saved to localStorage
+- **Image Uploads** — Attach images to your messages for multimodal AI analysis (supports PNG, JPEG, WebP, GIF)
+- **Syntax Highlighting** — Code blocks are beautifully highlighted with Highlight.js
+- **Copy Code Buttons** — One-click copy for code snippets
+- **Follow-up Suggestions** — AI-generated follow-up questions for deeper exploration
+- **Stop Generation** — Cancel AI responses mid-stream
+- **Chat History** — Conversations are automatically saved to localStorage with easy deletion
 - **Collapsible Sidebar** — Icon-only mode for more screen space
+- **Mobile Responsive** — Full mobile support with drawer-style sidebar
 - **No Build Tools** — Pure vanilla JavaScript with ES6 modules
-- **Responsive Design** — Works on desktop and mobile devices
 
 ## Quick Start
 
-### 1. Clone the Repository
+### Option 1: Deploy to Vercel (Recommended)
+
+1. Fork this repository
+2. Import to [Vercel](https://vercel.com)
+3. Add your OpenRouter API key as an environment variable:
+   - Name: `OPENROUTER_API_KEY`
+   - Value: Your API key from [OpenRouter](https://openrouter.ai/)
+4. Deploy!
+
+### Option 2: Local Development with Vercel CLI
 
 ```bash
+# Clone the repository
 git clone https://github.com/yourusername/Lampira.git
 cd Lampira
+
+# Install Vercel CLI
+npm i -g vercel
+
+# Create .env.local with your API key
+echo "OPENROUTER_API_KEY=your_api_key_here" > .env.local
+
+# Run development server
+vercel dev
 ```
 
-### 2. Get an OpenRouter API Key
+### Option 3: Static Hosting (requires API proxy)
 
-1. Sign up at [OpenRouter](https://openrouter.ai/)
-2. Create an API key in your dashboard
-3. The app will prompt you to enter your API key on first use
-
-### 3. Serve the Application
-
-Since Lampira uses ES6 modules, you need to serve it via HTTP (not `file://`):
-
-**Using Python:**
-
-```bash
-python -m http.server 8080
-```
-
-**Using Node.js:**
-
-```bash
-npx serve .
-```
-
-**Using VS Code:**
-Install the "Live Server" extension and click "Go Live"
-
-### 4. Open in Browser
-
-Navigate to `http://localhost:8080` and start asking questions!
+Since the app uses serverless functions for API key security, you'll need to set up your own API proxy if not using Vercel.
 
 ## Architecture
 
@@ -61,8 +60,12 @@ Lampira uses a modular vanilla JavaScript architecture with an event-driven desi
 ```
 Lampira/
 ├── index.html              # Main HTML entry point
+├── vercel.json             # Vercel configuration
+├── api/                    # Vercel serverless functions
+│   ├── chat.js             # Chat endpoint (proxies to OpenRouter)
+│   └── models.js           # Models endpoint
 ├── css/
-│   └── styles.css          # Complete stylesheet
+│   └── styles.css          # Complete stylesheet with CSS variables
 └── js/
     ├── app.js              # Application bootstrap
     ├── config.js           # Central configuration
@@ -72,8 +75,8 @@ Lampira/
     ├── components/
     │   ├── messageList.js  # Message rendering with citations
     │   ├── modelSelector.js # Model dropdown
-    │   ├── searchBox.js    # Search input handling
-    │   └── sidebar.js      # Sidebar with collapse
+    │   ├── searchBox.js    # Search input with image upload
+    │   └── sidebar.js      # Sidebar with mobile support
     ├── services/
     │   ├── chat.js         # Chat state management
     │   ├── models.js       # Model configuration
@@ -81,16 +84,24 @@ Lampira/
     └── utils/
         ├── dom.js          # DOM helper functions
         ├── events.js       # Pub/sub event bus
-        └── markdown.js     # Markdown parser
+        ├── icons.js        # Centralized SVG icons
+        └── markdown.js     # Markdown parser (Marked + DOMPurify)
 ```
 
 ### Key Design Decisions
 
-- **No Framework** — Vanilla JS for simplicity and zero dependencies
+- **No Framework** — Vanilla JS for simplicity and minimal dependencies
 - **ES6 Modules** — Native browser modules, no bundler required
 - **Event Bus** — Decoupled components communicate via pub/sub
 - **LocalStorage** — Chat history persists across sessions
 - **SSE Streaming** — Real-time response streaming with AbortController support
+- **Vercel Serverless** — API key stored securely server-side
+
+### External Libraries (CDN)
+
+- **[Marked](https://marked.js.org/)** — Markdown parsing
+- **[DOMPurify](https://github.com/cure53/DOMPurify)** — HTML sanitization
+- **[Highlight.js](https://highlightjs.org/)** — Syntax highlighting
 
 ## Configuration
 
@@ -98,10 +109,11 @@ Edit `js/config.js` to customize:
 
 ```javascript
 const config = {
-    // API settings
+    // API settings (proxied through Vercel serverless functions)
     api: {
-        baseUrl: 'https://openrouter.ai/api/v1',
-        apiKey: localStorage.getItem('openrouter_api_key') || ''
+        baseUrl: '/api',
+        siteUrl: window.location.origin,
+        siteName: 'Lampira AI'
     },
 
     // Default model
@@ -123,6 +135,14 @@ const config = {
     }
 };
 ```
+
+### Environment Variables
+
+When deploying to Vercel, set these environment variables:
+
+| Variable | Description |
+|----------|-------------|
+| `OPENROUTER_API_KEY` | Your OpenRouter API key (required) |
 
 ## Web Search
 
@@ -152,16 +172,20 @@ The app uses a pub/sub event system. Key events:
 | `ai:streaming` | Streaming chunk received |
 | `ai:complete` | Response complete |
 | `ai:sources:updated` | Citations updated |
+| `ai:suggestions` | Follow-up suggestions generated |
+| `ai:cancelled` | Generation stopped by user |
 | `chat:cleared` | Chat history cleared |
 | `sidebar:toggle` | Sidebar collapsed/expanded |
+| `loading:start` | Request started |
+| `loading:end` | Request completed |
 
 ### Chat Service
 
 ```javascript
 import { sendUserMessage, clearHistory, cancelCurrentRequest } from './services/chat.js';
 
-// Send a message
-await sendUserMessage('What is quantum computing?');
+// Send a message (with optional images)
+await sendUserMessage('What is quantum computing?', { images: [] });
 
 // Cancel ongoing request
 cancelCurrentRequest();
@@ -169,6 +193,16 @@ cancelCurrentRequest();
 // Clear chat
 clearHistory();
 ```
+
+### Image Upload
+
+Images can be attached via:
+
+- Click the image upload button
+- Paste from clipboard (Ctrl+V)
+- Drag and drop (coming soon)
+
+Supported formats: PNG, JPEG, WebP, GIF (max 20MB)
 
 ## Browser Support
 

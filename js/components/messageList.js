@@ -5,8 +5,9 @@
 
 import { $, $$, createElement, empty, scrollIntoView, addClass, removeClass } from '../utils/dom.js';
 import eventBus, { Events } from '../utils/events.js';
-import { parseMarkdown } from '../utils/markdown.js';
-import { getHistory } from '../services/chat.js';
+import { parseMarkdown, highlightCodeBlocks } from '../utils/markdown.js';
+import { getHistory, sendUserMessage } from '../services/chat.js';
+import { icons, USER_PATH, LOGO_PATH, SOURCES_PATH, CHEVRON_DOWN_PATH, COPY_PATH, CHECK_PATH } from '../utils/icons.js';
 
 // DOM Elements
 let mainContent;
@@ -38,6 +39,7 @@ export const init = () => {
     eventBus.on(Events.AI_SOURCES_UPDATED, handleSourcesUpdated);
     eventBus.on(Events.CHAT_CLEARED, handleChatCleared);
     eventBus.on(Events.CHAT_LOADED, handleChatLoaded);
+    eventBus.on(Events.AI_SUGGESTIONS, handleSuggestions);
 
     // Render any existing messages
     const history = getHistory();
@@ -74,6 +76,7 @@ const handleStreaming = ({ chunk, fullContent, message }) => {
         const contentEl = $('.message-content', messageEl);
         if (contentEl) {
             contentEl.innerHTML = parseMarkdown(fullContent);
+            // Note: We don't highlight during streaming for performance
         }
         scrollToBottom();
     }
@@ -106,6 +109,10 @@ const handleComplete = ({ content, message, sources }) => {
         const contentEl = $('.message-content', messageEl);
         if (contentEl) {
             contentEl.innerHTML = parseMarkdown(content);
+            // Apply syntax highlighting to code blocks
+            highlightCodeBlocks(contentEl);
+            // Add copy buttons to code blocks
+            addCopyButtonsToCodeBlocks(contentEl);
         }
         // Render sources if available
         if (sources && sources.length > 0) {
@@ -113,6 +120,18 @@ const handleComplete = ({ content, message, sources }) => {
         }
     }
     scrollToBottom();
+};
+
+/**
+ * Handle follow-up suggestions event
+ * @param {Object} data
+ */
+const handleSuggestions = ({ messageId, suggestions }) => {
+    const messageEl = $(`[data-message-id="${messageId}"]`);
+    if (messageEl && suggestions && suggestions.length > 0) {
+        renderSuggestions(messageEl, suggestions);
+        scrollToBottom();
+    }
 };
 
 /**
@@ -210,14 +229,9 @@ const renderMessage = (message, animate = true) => {
     // Avatar
     const avatar = createElement('div', { className: 'message-avatar' });
     if (isUser) {
-        avatar.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-            <circle cx="12" cy="7" r="4"></circle>
-        </svg>`;
+        avatar.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${USER_PATH}</svg>`;
     } else {
-        avatar.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M12 3v18M3 12h18M5.5 5.5l13 13M18.5 5.5l-13 13"></path>
-        </svg>`;
+        avatar.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">${LOGO_PATH}</svg>`;
     }
 
     // Content wrapper
@@ -228,9 +242,32 @@ const renderMessage = (message, animate = true) => {
 
     // Content
     const content = createElement('div', { className: 'message-content' });
+
+    // Render images if present (user messages with image attachments)
+    if (message.images && message.images.length > 0) {
+        const imagesContainer = createElement('div', { className: 'message-images' });
+        message.images.forEach(imageUrl => {
+            const img = createElement('img', {
+                src: imageUrl,
+                alt: 'Attached image',
+                className: 'message-image'
+            });
+            img.addEventListener('click', () => openImageModal(imageUrl));
+            imagesContainer.appendChild(img);
+        });
+        content.appendChild(imagesContainer);
+    }
+
     if (message.content) {
-        content.innerHTML = parseMarkdown(message.content);
-    } else {
+        const textContent = createElement('div', { className: 'message-text' });
+        textContent.innerHTML = parseMarkdown(message.content);
+        content.appendChild(textContent);
+        // Apply syntax highlighting after adding to DOM (deferred)
+        requestAnimationFrame(() => {
+            highlightCodeBlocks(textContent);
+            addCopyButtonsToCodeBlocks(textContent);
+        });
+    } else if (!message.images || message.images.length === 0) {
         content.innerHTML = '<div class="processing-indicator"><div class="shimmer-line"></div><div class="shimmer-line"></div><div class="shimmer-line"></div></div>';
     }
 
@@ -264,23 +301,17 @@ const createSourcesElement = (sources) => {
 
     const sourcesHeader = createElement('div', { className: 'sources-header' });
     sourcesHeader.innerHTML = `
-        <svg class="sources-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-            <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
-            <path d="M2 17l10 5 10-5"></path>
-            <path d="M2 12l10 5 10-5"></path>
-        </svg>
+        <svg class="sources-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">${SOURCES_PATH}</svg>
         <span>Sources</span>
         <span class="sources-count">${sources.length}</span>
-        <svg class="sources-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-            <polyline points="6 9 12 15 18 9"></polyline>
-        </svg>
+        <svg class="sources-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">${CHEVRON_DOWN_PATH}</svg>
     `;
-    
+
     // Add click handler to toggle sources visibility
     sourcesHeader.addEventListener('click', () => {
         sourcesContainer.classList.toggle('collapsed');
     });
-    
+
     sourcesContainer.appendChild(sourcesHeader);
 
     const sourcesList = createElement('div', { className: 'sources-list' });
@@ -379,8 +410,167 @@ export const updateMessageContent = (messageId, content) => {
         const contentEl = $('.message-content', messageEl);
         if (contentEl) {
             contentEl.innerHTML = parseMarkdown(content);
+            highlightCodeBlocks(contentEl);
+            addCopyButtonsToCodeBlocks(contentEl);
         }
     }
+};
+
+/**
+ * Add copy buttons to all code blocks in a container
+ * @param {HTMLElement} container - Container with code blocks
+ */
+const addCopyButtonsToCodeBlocks = (container) => {
+    const codeBlocks = container.querySelectorAll('pre');
+
+    codeBlocks.forEach(pre => {
+        // Skip if already has a copy button
+        if (pre.querySelector('.code-copy-btn')) return;
+
+        // Create wrapper for positioning
+        pre.style.position = 'relative';
+
+        // Create copy button
+        const copyBtn = createElement('button', {
+            className: 'code-copy-btn',
+            title: 'Copy code'
+        });
+        copyBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">${COPY_PATH}</svg><span>Copy</span>`;
+
+        // Add click handler
+        copyBtn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const code = pre.querySelector('code');
+            const text = code ? code.textContent : pre.textContent;
+
+            try {
+                await navigator.clipboard.writeText(text);
+
+                // Show copied feedback
+                copyBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">${CHECK_PATH}</svg><span>Copied!</span>`;
+                addClass(copyBtn, 'copied');
+
+                // Reset after delay
+                setTimeout(() => {
+                    copyBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">${COPY_PATH}</svg><span>Copy</span>`;
+                    removeClass(copyBtn, 'copied');
+                }, 2000);
+            } catch (err) {
+                console.error('Failed to copy:', err);
+                // Fallback for older browsers
+                fallbackCopy(text);
+            }
+        });
+
+        pre.appendChild(copyBtn);
+    });
+};
+
+/**
+ * Fallback copy method for browsers without clipboard API
+ * @param {string} text - Text to copy
+ */
+const fallbackCopy = (text) => {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    try {
+        document.execCommand('copy');
+    } catch (err) {
+        console.error('Fallback copy failed:', err);
+    }
+    document.body.removeChild(textarea);
+};
+
+/**
+ * Render follow-up suggestions for a message
+ * @param {HTMLElement} messageEl - Message element
+ * @param {Array<string>} suggestions - Array of suggestion strings
+ */
+const renderSuggestions = (messageEl, suggestions) => {
+    const wrapper = $('.message-wrapper', messageEl);
+    if (!wrapper) return;
+
+    // Remove existing suggestions
+    const existingSuggestions = $('.follow-up-suggestions', wrapper);
+    if (existingSuggestions) {
+        existingSuggestions.remove();
+    }
+
+    // Create suggestions container
+    const suggestionsContainer = createElement('div', { className: 'follow-up-suggestions' });
+
+    const suggestionsHeader = createElement('div', { className: 'suggestions-header' }, 'Follow-up questions');
+    suggestionsContainer.appendChild(suggestionsHeader);
+
+    const suggestionsList = createElement('div', { className: 'suggestions-list' });
+
+    suggestions.forEach(suggestion => {
+        const chip = createElement('button', {
+            className: 'suggestion-chip'
+        }, suggestion);
+
+        chip.addEventListener('click', async () => {
+            // Send the suggestion as a new message
+            try {
+                await sendUserMessage(suggestion);
+            } catch (error) {
+                console.error('Failed to send suggestion:', error);
+            }
+        });
+
+        suggestionsList.appendChild(chip);
+    });
+
+    suggestionsContainer.appendChild(suggestionsList);
+    wrapper.appendChild(suggestionsContainer);
+};
+
+/**
+ * Open an image in a fullscreen modal
+ * @param {string} imageUrl - Image URL or base64 data URL
+ */
+const openImageModal = (imageUrl) => {
+    // Create modal backdrop
+    const modal = createElement('div', { className: 'image-modal' });
+
+    // Create image container
+    const imgContainer = createElement('div', { className: 'image-modal-content' });
+
+    // Create image
+    const img = createElement('img', {
+        src: imageUrl,
+        alt: 'Full size image'
+    });
+
+    // Create close button
+    const closeBtn = createElement('button', { className: 'image-modal-close' });
+    closeBtn.innerHTML = '&times;';
+    closeBtn.addEventListener('click', () => modal.remove());
+
+    // Close on backdrop click
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) modal.remove();
+    });
+
+    // Close on Escape key
+    const handleEscape = (e) => {
+        if (e.key === 'Escape') {
+            modal.remove();
+            document.removeEventListener('keydown', handleEscape);
+        }
+    };
+    document.addEventListener('keydown', handleEscape);
+
+    imgContainer.appendChild(img);
+    imgContainer.appendChild(closeBtn);
+    modal.appendChild(imgContainer);
+    document.body.appendChild(modal);
 };
 
 export default { init, renderMessages, renderMessage, updateMessageContent, scrollToBottom };

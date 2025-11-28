@@ -112,6 +112,7 @@ export const getModelDetails = async (modelId) => {
 
 /**
  * Format messages for API request
+ * Handles multimodal content (text + images)
  * @param {Array} history - Chat history
  * @param {string} systemPrompt - Optional system prompt
  * @returns {Array}
@@ -129,10 +130,40 @@ export const formatMessages = (history, systemPrompt = config.chat.systemPrompt)
 
     // Add conversation history
     history.forEach(msg => {
-        messages.push({
-            role: msg.role,
-            content: msg.content
-        });
+        // Check if message has images (multimodal)
+        if (msg.images && msg.images.length > 0) {
+            // Build multimodal content array
+            const content = [];
+
+            // Text first (recommended by OpenRouter docs)
+            if (msg.content && msg.content.trim()) {
+                content.push({
+                    type: 'text',
+                    text: msg.content
+                });
+            }
+
+            // Then images
+            msg.images.forEach(imageUrl => {
+                content.push({
+                    type: 'image_url',
+                    image_url: {
+                        url: imageUrl
+                    }
+                });
+            });
+
+            messages.push({
+                role: msg.role,
+                content: content
+            });
+        } else {
+            // Standard text-only message
+            messages.push({
+                role: msg.role,
+                content: msg.content
+            });
+        }
     });
 
     return messages;

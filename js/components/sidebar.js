@@ -6,13 +6,25 @@
 import { $, $$, createElement, addClass, removeClass, toggleClass } from '../utils/dom.js';
 import eventBus, { Events } from '../utils/events.js';
 import { getChatList, loadChat, deleteChat } from '../services/storage.js';
-import { clearHistory, loadChatHistory } from '../services/chat.js';
+import { clearHistory, loadChatHistory, getCurrentChatId } from '../services/chat.js';
+import { createChatIcon, TRASH_PATH } from '../utils/icons.js';
 
 // DOM Elements
 let sidebar;
 let newChatBtn;
 let chatHistoryContainer;
 let collapseBtn;
+let menuBtn;
+let backdrop;
+
+// Mobile breakpoint
+const MOBILE_BREAKPOINT = 768;
+
+/**
+ * Check if we're on mobile
+ * @returns {boolean}
+ */
+const isMobile = () => window.innerWidth <= MOBILE_BREAKPOINT;
 
 /**
  * Initialize sidebar component
@@ -21,6 +33,12 @@ export const init = () => {
     sidebar = $('.sidebar');
     newChatBtn = $('.nav-item.active'); // New Chat button
     collapseBtn = $('.collapse-btn');
+
+    // Create mobile menu button if it doesn't exist
+    createMobileMenuButton();
+
+    // Create backdrop for mobile overlay
+    createBackdrop();
 
     // Create chat history container if it doesn't exist
     chatHistoryContainer = $('.chat-history');
@@ -41,6 +59,48 @@ export const init = () => {
     eventBus.on(Events.CHAT_CLEARED, () => {
         $$('.chat-history-item').forEach(item => removeClass(item, 'active'));
     });
+
+    // Handle resize events
+    window.addEventListener('resize', handleResize);
+
+    // Initial setup based on screen size
+    handleResize();
+};
+
+/**
+ * Create mobile menu button
+ */
+const createMobileMenuButton = () => {
+    menuBtn = $('.mobile-menu-btn');
+    if (!menuBtn) {
+        menuBtn = createElement('button', {
+            className: 'mobile-menu-btn',
+            title: 'Open menu'
+        });
+        menuBtn.innerHTML = `
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="3" y1="12" x2="21" y2="12"></line>
+                <line x1="3" y1="6" x2="21" y2="6"></line>
+                <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+        `;
+        // Insert at the beginning of main content
+        const mainContent = $('.main-content');
+        if (mainContent) {
+            mainContent.insertBefore(menuBtn, mainContent.firstChild);
+        }
+    }
+};
+
+/**
+ * Create backdrop for mobile sidebar
+ */
+const createBackdrop = () => {
+    backdrop = $('.sidebar-backdrop');
+    if (!backdrop) {
+        backdrop = createElement('div', { className: 'sidebar-backdrop' });
+        document.body.appendChild(backdrop);
+    }
 };
 
 /**
@@ -55,10 +115,24 @@ const setupEventListeners = () => {
         });
     }
 
-    // Collapse button
+    // Collapse button (desktop)
     if (collapseBtn) {
         collapseBtn.addEventListener('click', () => {
             toggleSidebar();
+        });
+    }
+
+    // Mobile menu button
+    if (menuBtn) {
+        menuBtn.addEventListener('click', () => {
+            openMobileSidebar();
+        });
+    }
+
+    // Backdrop click to close
+    if (backdrop) {
+        backdrop.addEventListener('click', () => {
+            closeMobileSidebar();
         });
     }
 
@@ -72,6 +146,32 @@ const setupEventListeners = () => {
             }
         });
     }
+
+    // Close sidebar when clicking a nav item on mobile
+    $$('.nav-item', sidebar).forEach(item => {
+        item.addEventListener('click', () => {
+            if (isMobile() && sidebar.classList.contains('open')) {
+                closeMobileSidebar();
+            }
+        });
+    });
+};
+
+/**
+ * Handle window resize
+ */
+const handleResize = () => {
+    if (isMobile()) {
+        // On mobile, remove collapsed class and use open/close
+        removeClass(sidebar, 'collapsed');
+        removeClass(sidebar, 'open');
+        // Show menu button
+        if (menuBtn) menuBtn.style.display = '';
+    } else {
+        // On desktop, hide menu button and backdrop
+        if (menuBtn) menuBtn.style.display = 'none';
+        closeMobileSidebar();
+    }
 };
 
 /**
@@ -83,39 +183,79 @@ const handleNewChat = () => {
     // Remove active state from chat history items
     $$('.chat-history-item').forEach(item => removeClass(item, 'active'));
 
+    // Close mobile sidebar if open
+    if (isMobile()) {
+        closeMobileSidebar();
+    }
+
     // Focus on input
     const searchInput = $('.search-input');
     if (searchInput) searchInput.focus();
 };
 
 /**
- * Toggle sidebar collapsed state
+ * Open mobile sidebar (overlay mode)
+ */
+const openMobileSidebar = () => {
+    addClass(sidebar, 'open');
+    addClass(backdrop, 'visible');
+    document.body.style.overflow = 'hidden'; // Prevent scroll
+    eventBus.emit(Events.SIDEBAR_TOGGLE, { collapsed: false, mobile: true });
+};
+
+/**
+ * Close mobile sidebar
+ */
+const closeMobileSidebar = () => {
+    removeClass(sidebar, 'open');
+    removeClass(backdrop, 'visible');
+    document.body.style.overflow = ''; // Restore scroll
+    eventBus.emit(Events.SIDEBAR_TOGGLE, { collapsed: true, mobile: true });
+};
+
+/**
+ * Toggle sidebar collapsed state (desktop only)
  */
 const toggleSidebar = () => {
+    if (isMobile()) {
+        // On mobile, use open/close instead
+        if (sidebar.classList.contains('open')) {
+            closeMobileSidebar();
+        } else {
+            openMobileSidebar();
+        }
+        return;
+    }
+
     toggleClass(sidebar, 'collapsed');
     const isCollapsedNow = sidebar.classList.contains('collapsed');
-    
+
     // Update main content margin
     const mainContent = $('.main-content');
     if (mainContent) {
         toggleClass(mainContent, 'sidebar-collapsed', isCollapsedNow);
     }
-    
+
     eventBus.emit(Events.SIDEBAR_TOGGLE, { collapsed: isCollapsedNow });
 };
 
 /**
- * Expand sidebar (when clicking on collapsed sidebar)
+ * Expand sidebar (when clicking on collapsed sidebar - desktop)
  */
 const expandSidebar = () => {
+    if (isMobile()) {
+        openMobileSidebar();
+        return;
+    }
+
     removeClass(sidebar, 'collapsed');
-    
+
     // Update main content margin
     const mainContent = $('.main-content');
     if (mainContent) {
         removeClass(mainContent, 'sidebar-collapsed');
     }
-    
+
     eventBus.emit(Events.SIDEBAR_TOGGLE, { collapsed: false });
 };
 
@@ -138,12 +278,30 @@ const renderChatHistory = () => {
             href: '#',
             className: 'nav-item chat-history-item',
             dataset: { chatId: chat.id }
-        }, [
-            createElement('span', { className: 'chat-history-icon' }, [
-                createChatIcon()
-            ]),
-            createElement('span', { className: 'chat-history-title' }, chat.title)
-        ]);
+        });
+
+        // Chat icon
+        const iconSpan = createElement('span', { className: 'chat-history-icon' });
+        iconSpan.appendChild(createChatIcon());
+
+        // Chat title
+        const titleSpan = createElement('span', { className: 'chat-history-title' }, chat.title);
+
+        // Delete button
+        const deleteBtn = createElement('button', {
+            className: 'chat-delete-btn',
+            title: 'Delete chat'
+        });
+        deleteBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${TRASH_PATH}</svg>`;
+        deleteBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            handleDeleteClick(deleteBtn, chat.id);
+        });
+
+        item.appendChild(iconSpan);
+        item.appendChild(titleSpan);
+        item.appendChild(deleteBtn);
 
         item.addEventListener('click', (e) => {
             e.preventDefault();
@@ -154,17 +312,84 @@ const renderChatHistory = () => {
     });
 };
 
+// Track which delete button is in confirm state
+let pendingDeleteBtn = null;
+let pendingDeleteTimeout = null;
+
 /**
- * Create chat icon SVG
+ * Handle delete button click (two-click to delete)
+ * @param {HTMLElement} btn - The delete button
+ * @param {string} chatId - Chat ID to delete
  */
-const createChatIcon = () => {
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('viewBox', '0 0 24 24');
-    svg.setAttribute('fill', 'none');
-    svg.setAttribute('stroke', 'currentColor');
-    svg.setAttribute('stroke-width', '2');
-    svg.innerHTML = '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>';
-    return svg;
+const handleDeleteClick = (btn, chatId) => {
+    // If this button is already in confirm state, delete
+    if (btn.classList.contains('confirm')) {
+        handleDeleteChat(chatId);
+        return;
+    }
+
+    // Reset any other pending delete button
+    if (pendingDeleteBtn && pendingDeleteBtn !== btn) {
+        resetDeleteButton(pendingDeleteBtn);
+    }
+
+    // Clear any existing timeout
+    if (pendingDeleteTimeout) {
+        clearTimeout(pendingDeleteTimeout);
+    }
+
+    // Set this button to confirm state
+    btn.classList.add('confirm');
+    btn.title = 'Click again to delete';
+    pendingDeleteBtn = btn;
+
+    // Auto-reset after 3 seconds
+    pendingDeleteTimeout = setTimeout(() => {
+        resetDeleteButton(btn);
+    }, 3000);
+};
+
+/**
+ * Reset delete button to normal state
+ * @param {HTMLElement} btn - The delete button
+ */
+const resetDeleteButton = (btn) => {
+    if (btn) {
+        btn.classList.remove('confirm');
+        btn.title = 'Delete chat';
+    }
+    if (pendingDeleteBtn === btn) {
+        pendingDeleteBtn = null;
+    }
+    if (pendingDeleteTimeout) {
+        clearTimeout(pendingDeleteTimeout);
+        pendingDeleteTimeout = null;
+    }
+};
+
+/**
+ * Handle chat deletion
+ * @param {string} chatId - Chat ID to delete
+ */
+const handleDeleteChat = (chatId) => {
+    // Reset pending state
+    pendingDeleteBtn = null;
+    if (pendingDeleteTimeout) {
+        clearTimeout(pendingDeleteTimeout);
+        pendingDeleteTimeout = null;
+    }
+
+    // Delete from storage
+    deleteChat(chatId);
+
+    // If this was the current chat, clear it
+    const currentId = getCurrentChatId();
+    if (currentId === chatId) {
+        clearHistory();
+    }
+
+    // Re-render the chat history
+    renderChatHistory();
 };
 
 /**
@@ -180,6 +405,11 @@ const handleChatSelect = (chatId) => {
         $$('.chat-history-item').forEach(item => {
             toggleClass(item, 'active', item.dataset.chatId === chatId);
         });
+
+        // Close mobile sidebar if open
+        if (isMobile()) {
+            closeMobileSidebar();
+        }
     }
 };
 
@@ -188,7 +418,15 @@ const handleChatSelect = (chatId) => {
  * @param {boolean} show
  */
 export const setSidebarVisible = (show) => {
-    toggleClass(sidebar, 'collapsed', !show);
+    if (isMobile()) {
+        if (show) {
+            openMobileSidebar();
+        } else {
+            closeMobileSidebar();
+        }
+    } else {
+        toggleClass(sidebar, 'collapsed', !show);
+    }
 };
 
 /**
@@ -196,7 +434,18 @@ export const setSidebarVisible = (show) => {
  * @returns {boolean}
  */
 export const isCollapsed = () => {
+    if (isMobile()) {
+        return !sidebar?.classList.contains('open');
+    }
     return sidebar?.classList.contains('collapsed') || false;
 };
 
-export default { init, setSidebarVisible, isCollapsed, renderChatHistory };
+/**
+ * Check if sidebar is open (for mobile)
+ * @returns {boolean}
+ */
+export const isOpen = () => {
+    return sidebar?.classList.contains('open') || false;
+};
+
+export default { init, setSidebarVisible, isCollapsed, isOpen, renderChatHistory };

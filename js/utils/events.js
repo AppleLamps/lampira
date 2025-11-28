@@ -106,6 +106,7 @@ export const Events = {
     AI_ERROR: 'ai:error',
     AI_CANCELLED: 'ai:cancelled',
     AI_SOURCES_UPDATED: 'ai:sources:updated',
+    AI_SUGGESTIONS: 'ai:suggestions',
 
     // Model events
     MODEL_CHANGED: 'model:changed',

@@ -1,17 +1,28 @@
 /**
  * Search Box Component
- * Handles message input and sending
+ * Handles message input and sending with image upload support
  */
 
-import { $, addClass, removeClass, toggleClass } from '../utils/dom.js';
+import { $, addClass, removeClass, toggleClass, createElement } from '../utils/dom.js';
 import eventBus, { Events } from '../utils/events.js';
-import { sendUserMessage, getIsLoading } from '../services/chat.js';
+import { sendUserMessage, getIsLoading, cancelCurrentRequest } from '../services/chat.js';
+import { STOP_PATH, SEND_PATH, CLOSE_PATH } from '../utils/icons.js';
 
 // DOM Elements
 let searchBox;
 let searchInput;
 let voiceBtn;
 let attachBtn;
+let imageUploadBtn;
+let sendStopBtn;
+let attachmentPreview;
+
+// Attached images (base64 data URLs)
+let attachedImages = [];
+
+// Supported image types
+const SUPPORTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
+const MAX_IMAGE_SIZE = 20 * 1024 * 1024; // 20MB max
 
 /**
  * Initialize search box component
@@ -20,7 +31,14 @@ export const init = () => {
     searchBox = $('.search-box');
     searchInput = $('.search-input');
     voiceBtn = $('.voice-btn');
-    attachBtn = $('.icon-btn:has(path[d*="21.44"])'); // Attachment button
+    attachBtn = $('#attach-btn');
+    imageUploadBtn = $('#image-upload-btn');
+
+    // Create attachment preview area
+    createAttachmentPreview();
+
+    // Create send/stop button
+    createSendStopButton();
 
     setupEventListeners();
 
@@ -28,8 +46,40 @@ export const init = () => {
     eventBus.on(Events.LOADING_START, handleLoadingStart);
     eventBus.on(Events.LOADING_END, handleLoadingEnd);
     eventBus.on(Events.CHAT_CLEARED, () => {
+        clearAttachments();
         if (searchInput) searchInput.focus();
     });
+};
+
+/**
+ * Create attachment preview area
+ */
+const createAttachmentPreview = () => {
+    attachmentPreview = createElement('div', { className: 'attachment-preview' });
+    attachmentPreview.style.display = 'none';
+
+    // Insert before search controls
+    const searchControls = $('.search-controls');
+    if (searchControls) {
+        searchBox.insertBefore(attachmentPreview, searchControls);
+    }
+};
+
+/**
+ * Create the send/stop toggle button
+ */
+const createSendStopButton = () => {
+    const rightControls = $('.search-right-controls');
+    if (!rightControls) return;
+
+    sendStopBtn = createElement('button', {
+        className: 'send-stop-btn',
+        title: 'Send message'
+    });
+    sendStopBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${SEND_PATH}</svg>`;
+    sendStopBtn.dataset.mode = 'send';
+
+    rightControls.appendChild(sendStopBtn);
 };
 
 /**
@@ -42,6 +92,9 @@ const setupEventListeners = () => {
 
         // Auto-resize for multiline (future enhancement)
         searchInput.addEventListener('input', handleInput);
+
+        // Handle paste for images
+        searchInput.addEventListener('paste', handlePaste);
     }
 
     if (voiceBtn) {
@@ -50,6 +103,30 @@ const setupEventListeners = () => {
 
     if (attachBtn) {
         attachBtn.addEventListener('click', handleAttachClick);
+    }
+
+    if (imageUploadBtn) {
+        imageUploadBtn.addEventListener('click', handleImageUploadClick);
+    }
+
+    if (sendStopBtn) {
+        sendStopBtn.addEventListener('click', handleSendStopClick);
+    }
+};
+
+/**
+ * Handle send/stop button click
+ */
+const handleSendStopClick = () => {
+    if (sendStopBtn.dataset.mode === 'stop') {
+        // Stop generation
+        const cancelled = cancelCurrentRequest();
+        if (cancelled) {
+            eventBus.emit(Events.AI_CANCELLED);
+        }
+    } else {
+        // Send message
+        submitMessage();
     }
 };
 
@@ -80,22 +157,31 @@ const submitMessage = async () => {
     if (!searchInput) return;
 
     const content = searchInput.value.trim();
-    if (!content) return;
+
+    // Need either text or images to send
+    if (!content && attachedImages.length === 0) return;
 
     // Check if already loading
     if (getIsLoading()) {
         return;
     }
 
-    // Clear input
+    // Store values before clearing
+    const messageText = content;
+    const images = [...attachedImages];
+
+    // Clear input and attachments
     searchInput.value = '';
+    clearAttachments();
 
     try {
-        await sendUserMessage(content);
+        await sendUserMessage(messageText, { images });
     } catch (error) {
         console.error('Failed to send message:', error);
         // Restore input on error
-        searchInput.value = content;
+        searchInput.value = messageText;
+        // Restore images
+        images.forEach(img => addImageToPreview(img));
         showError(error.message);
     }
 };
@@ -109,6 +195,14 @@ const handleLoadingStart = () => {
         searchInput.placeholder = 'Thinking...';
     }
     addClass(searchBox, 'loading');
+
+    // Switch to stop button
+    if (sendStopBtn) {
+        sendStopBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor" stroke="none">${STOP_PATH}</svg>`;
+        sendStopBtn.dataset.mode = 'stop';
+        sendStopBtn.title = 'Stop generation';
+        addClass(sendStopBtn, 'stop-mode');
+    }
 };
 
 /**
@@ -121,6 +215,14 @@ const handleLoadingEnd = () => {
         searchInput.focus();
     }
     removeClass(searchBox, 'loading');
+
+    // Switch back to send button
+    if (sendStopBtn) {
+        sendStopBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${SEND_PATH}</svg>`;
+        sendStopBtn.dataset.mode = 'send';
+        sendStopBtn.title = 'Send message';
+        removeClass(sendStopBtn, 'stop-mode');
+    }
 };
 
 /**
@@ -177,45 +279,150 @@ const startVoiceRecognition = () => {
 };
 
 /**
- * Handle attach button click
+ * Handle attach button click (general files - future expansion)
  */
 const handleAttachClick = () => {
-    // Create hidden file input
+    // For now, redirect to image upload
+    handleImageUploadClick();
+};
+
+/**
+ * Handle image upload button click
+ */
+const handleImageUploadClick = () => {
     const fileInput = document.createElement('input');
     fileInput.type = 'file';
-    fileInput.accept = 'image/*,.pdf,.txt,.md';
+    fileInput.accept = SUPPORTED_IMAGE_TYPES.map(t => t.replace('image/', '.')).join(',') + ',image/*';
     fileInput.multiple = true;
 
     fileInput.addEventListener('change', (e) => {
         const files = Array.from(e.target.files);
-        if (files.length > 0) {
-            handleFileAttachment(files);
-        }
+        handleImageFiles(files);
     });
 
     fileInput.click();
 };
 
 /**
- * Handle file attachment
+ * Handle paste event to detect images
+ * @param {ClipboardEvent} e
+ */
+const handlePaste = (e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    const imageFiles = [];
+    for (const item of items) {
+        if (item.type.startsWith('image/')) {
+            const file = item.getAsFile();
+            if (file) imageFiles.push(file);
+        }
+    }
+
+    if (imageFiles.length > 0) {
+        e.preventDefault();
+        handleImageFiles(imageFiles);
+    }
+};
+
+/**
+ * Handle image files - validate and convert to base64
  * @param {File[]} files
  */
-const handleFileAttachment = (files) => {
-    // Future: implement file attachment handling
-    console.log('Files selected:', files);
-
-    // For images, could convert to base64 and include in message
-    files.forEach(file => {
-        if (file.type.startsWith('image/')) {
-            // Handle image attachment
-            console.log('Image file:', file.name);
-        } else {
-            // Handle text/document attachment
-            console.log('Document file:', file.name);
+const handleImageFiles = async (files) => {
+    for (const file of files) {
+        // Validate file type
+        if (!SUPPORTED_IMAGE_TYPES.includes(file.type)) {
+            showError(`Unsupported image type: ${file.type}. Supported: PNG, JPEG, WebP, GIF`);
+            continue;
         }
+
+        // Validate file size
+        if (file.size > MAX_IMAGE_SIZE) {
+            showError(`Image too large: ${file.name}. Maximum size is 20MB.`);
+            continue;
+        }
+
+        try {
+            const base64 = await fileToBase64(file);
+            addImageToPreview(base64);
+        } catch (error) {
+            console.error('Failed to process image:', error);
+            showError(`Failed to process image: ${file.name}`);
+        }
+    }
+};
+
+/**
+ * Convert a File to base64 data URL
+ * @param {File} file
+ * @returns {Promise<string>}
+ */
+const fileToBase64 = (file) => {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
+};
+
+/**
+ * Add image to preview area
+ * @param {string} base64 - Base64 data URL
+ */
+const addImageToPreview = (base64) => {
+    attachedImages.push(base64);
+
+    const imageWrapper = createElement('div', { className: 'attachment-item' });
+    imageWrapper.dataset.index = attachedImages.length - 1;
+
+    const img = createElement('img', {
+        src: base64,
+        alt: 'Attached image'
     });
 
-    showError('File attachments not yet fully implemented');
+    const removeBtn = createElement('button', {
+        className: 'attachment-remove',
+        title: 'Remove image'
+    });
+    removeBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${CLOSE_PATH}</svg>`;
+    removeBtn.addEventListener('click', () => removeAttachment(imageWrapper));
+
+    imageWrapper.appendChild(img);
+    imageWrapper.appendChild(removeBtn);
+    attachmentPreview.appendChild(imageWrapper);
+    attachmentPreview.style.display = 'flex';
+};
+
+/**
+ * Remove an attachment
+ * @param {HTMLElement} wrapper
+ */
+const removeAttachment = (wrapper) => {
+    const index = parseInt(wrapper.dataset.index, 10);
+    attachedImages.splice(index, 1);
+    wrapper.remove();
+
+    // Update indices for remaining items
+    const items = attachmentPreview.querySelectorAll('.attachment-item');
+    items.forEach((item, i) => item.dataset.index = i);
+
+    // Hide preview if empty
+    if (attachedImages.length === 0) {
+        attachmentPreview.style.display = 'none';
+    }
+};
+
+/**
+ * Clear all attachments
+ */
+const clearAttachments = () => {
+    attachedImages = [];
+    if (attachmentPreview) {
+        attachmentPreview.innerHTML = '';
+        attachmentPreview.style.display = 'none';
+    }
 };
 
 /**

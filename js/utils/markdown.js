@@ -1,7 +1,49 @@
 /**
  * Markdown Parser
- * Simple markdown to HTML converter for AI responses
+ * Uses Marked library for parsing with DOMPurify for sanitization
  */
+
+// Configure marked options
+const configureMarked = () => {
+    if (typeof window.marked === 'undefined') {
+        console.warn('Marked library not loaded, falling back to basic parsing');
+        return false;
+    }
+
+    // Configure marked options
+    window.marked.setOptions({
+        gfm: true,           // GitHub Flavored Markdown
+        breaks: true,        // Convert \n to <br>
+        headerIds: false,    // Don't add IDs to headers
+        mangle: false,       // Don't mangle email addresses
+    });
+
+    // Custom renderer for links to open in new tab
+    const renderer = new window.marked.Renderer();
+
+    renderer.link = (href, title, text) => {
+        const titleAttr = title ? ` title="${title}"` : '';
+        return `<a href="${href}"${titleAttr} target="_blank" rel="noopener noreferrer">${text}</a>`;
+    };
+
+    // Add language class to code blocks for highlight.js
+    renderer.code = (code, language) => {
+        const langClass = language ? `language-${language}` : '';
+        const escapedCode = escapeHtml(code);
+        return `<pre><code class="${langClass}">${escapedCode}</code></pre>`;
+    };
+
+    // Style inline code
+    renderer.codespan = (code) => {
+        return `<code class="inline-code">${escapeHtml(code)}</code>`;
+    };
+
+    window.marked.use({ renderer });
+    return true;
+};
+
+// Track if marked has been configured
+let markedConfigured = false;
 
 /**
  * Escape HTML special characters
@@ -15,32 +57,21 @@ const escapeHtml = (text) => {
 };
 
 /**
- * Parse inline markdown elements
- * @param {string} text - Text to parse
+ * Sanitize HTML using DOMPurify
+ * @param {string} html - HTML to sanitize
  * @returns {string}
  */
-const parseInline = (text) => {
-    // Escape HTML first
-    let result = escapeHtml(text);
-
-    // Bold: **text** or __text__
-    result = result.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-    result = result.replace(/__(.+?)__/g, '<strong>$1</strong>');
-
-    // Italic: *text* or _text_
-    result = result.replace(/\*([^*]+?)\*/g, '<em>$1</em>');
-    result = result.replace(/_([^_]+?)_/g, '<em>$1</em>');
-
-    // Strikethrough: ~~text~~
-    result = result.replace(/~~(.+?)~~/g, '<del>$1</del>');
-
-    // Inline code: `code`
-    result = result.replace(/`([^`]+?)`/g, '<code class="inline-code">$1</code>');
-
-    // Links: [text](url)
-    result = result.replace(/\[([^\]]+?)\]\(([^)]+?)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
-
-    return result;
+const sanitizeHtml = (html) => {
+    if (typeof window.DOMPurify !== 'undefined') {
+        return window.DOMPurify.sanitize(html, {
+            ADD_ATTR: ['target', 'rel'],  // Allow target and rel attributes for links
+            ADD_TAGS: ['iframe'],          // Allow iframes if needed
+            FORBID_TAGS: ['script', 'style'],
+            FORBID_ATTR: ['onerror', 'onload', 'onclick']
+        });
+    }
+    // Fallback: return as-is if DOMPurify not available
+    return html;
 };
 
 /**
@@ -51,135 +82,52 @@ const parseInline = (text) => {
 export const parseMarkdown = (markdown) => {
     if (!markdown) return '';
 
-    const lines = markdown.split('\n');
-    const result = [];
-    let inCodeBlock = false;
-    let codeBlockContent = [];
-    let codeBlockLang = '';
-    let inList = false;
-    let listItems = [];
-    let listType = 'ul';
-
-    const flushList = () => {
-        if (listItems.length > 0) {
-            const tag = listType;
-            result.push(`<${tag}>${listItems.join('')}</${tag}>`);
-            listItems = [];
-            inList = false;
-        }
-    };
-
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-
-        // Code blocks
-        if (line.startsWith('```')) {
-            if (inCodeBlock) {
-                // End code block
-                const code = codeBlockContent.join('\n');
-                const langClass = codeBlockLang ? ` class="language-${codeBlockLang}"` : '';
-                result.push(`<pre><code${langClass}>${escapeHtml(code)}</code></pre>`);
-                codeBlockContent = [];
-                codeBlockLang = '';
-                inCodeBlock = false;
-            } else {
-                // Start code block
-                flushList();
-                codeBlockLang = line.slice(3).trim();
-                inCodeBlock = true;
-            }
-            continue;
-        }
-
-        if (inCodeBlock) {
-            codeBlockContent.push(line);
-            continue;
-        }
-
-        // Empty line
-        if (line.trim() === '') {
-            flushList();
-            result.push('');
-            continue;
-        }
-
-        // Headers
-        const headerMatch = line.match(/^(#{1,6})\s+(.+)$/);
-        if (headerMatch) {
-            flushList();
-            const level = headerMatch[1].length;
-            const text = parseInline(headerMatch[2]);
-            result.push(`<h${level}>${text}</h${level}>`);
-            continue;
-        }
-
-        // Horizontal rule
-        if (/^(-{3,}|\*{3,}|_{3,})$/.test(line.trim())) {
-            flushList();
-            result.push('<hr>');
-            continue;
-        }
-
-        // Blockquote
-        if (line.startsWith('> ')) {
-            flushList();
-            const text = parseInline(line.slice(2));
-            result.push(`<blockquote>${text}</blockquote>`);
-            continue;
-        }
-
-        // Unordered list
-        const ulMatch = line.match(/^(\s*)[-*+]\s+(.+)$/);
-        if (ulMatch) {
-            if (!inList || listType !== 'ul') {
-                flushList();
-                inList = true;
-                listType = 'ul';
-            }
-            listItems.push(`<li>${parseInline(ulMatch[2])}</li>`);
-            continue;
-        }
-
-        // Ordered list
-        const olMatch = line.match(/^(\s*)\d+\.\s+(.+)$/);
-        if (olMatch) {
-            if (!inList || listType !== 'ol') {
-                flushList();
-                inList = true;
-                listType = 'ol';
-            }
-            listItems.push(`<li>${parseInline(olMatch[2])}</li>`);
-            continue;
-        }
-
-        // Regular paragraph
-        flushList();
-        result.push(`<p>${parseInline(line)}</p>`);
+    // Configure marked on first use
+    if (!markedConfigured) {
+        markedConfigured = configureMarked();
     }
 
-    // Close any open code block
-    if (inCodeBlock) {
-        const code = codeBlockContent.join('\n');
-        result.push(`<pre><code>${escapeHtml(code)}</code></pre>`);
+    // Use marked if available
+    if (typeof window.marked !== 'undefined') {
+        try {
+            const html = window.marked.parse(markdown);
+            return sanitizeHtml(html);
+        } catch (error) {
+            console.error('Marked parsing error:', error);
+            return escapeHtml(markdown);
+        }
     }
 
-    // Flush remaining list
-    flushList();
-
-    // Join and clean up empty paragraphs
-    return result
-        .filter(line => line !== '')
-        .join('\n');
+    // Fallback: return escaped text if marked not available
+    return escapeHtml(markdown).replace(/\n/g, '<br>');
 };
 
 /**
- * Parse markdown with syntax highlighting placeholder
- * (Can be enhanced with Prism.js or highlight.js later)
+ * Parse markdown with syntax highlighting
+ * Note: Highlighting is applied separately via highlightCodeBlocks()
  * @param {string} markdown - Markdown text
  * @returns {string}
  */
 export const parseMarkdownWithHighlight = (markdown) => {
     return parseMarkdown(markdown);
+};
+
+/**
+ * Apply syntax highlighting to code blocks in a container
+ * @param {HTMLElement} container - Container element with code blocks
+ */
+export const highlightCodeBlocks = (container) => {
+    if (typeof window.hljs === 'undefined') {
+        return;
+    }
+
+    const codeBlocks = container.querySelectorAll('pre code');
+    codeBlocks.forEach((block) => {
+        // Only highlight if not already highlighted
+        if (!block.classList.contains('hljs')) {
+            window.hljs.highlightElement(block);
+        }
+    });
 };
 
 /**
@@ -214,4 +162,4 @@ export const stripMarkdown = (markdown) => {
         .trim();
 };
 
-export default { parseMarkdown, parseMarkdownWithHighlight, stripMarkdown };
+export default { parseMarkdown, parseMarkdownWithHighlight, highlightCodeBlocks, stripMarkdown };

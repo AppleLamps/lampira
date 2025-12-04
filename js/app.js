@@ -16,11 +16,19 @@ import imageGallery from './components/imageGallery.js';
 // Services
 import { refreshModels } from './services/models.js';
 
+// Only log in development (localhost or explicit debug flag)
+const isDev = window.location.hostname === 'localhost' || 
+              window.location.hostname === '127.0.0.1' ||
+              window.localStorage.getItem('Lampira_debug') === 'true';
+
+const log = (...args) => isDev && console.log(...args);
+const warn = (...args) => isDev && console.warn(...args);
+
 /**
  * Initialize the application
  */
 const init = async () => {
-    console.log('🚀 Initializing Lampira AI...');
+    log('🚀 Initializing Lampira AI...');
 
     // Initialize components
     try {
@@ -30,7 +38,7 @@ const init = async () => {
         modelSelector.init();
         imageGallery.init();
 
-        console.log('✅ Components initialized');
+        log('✅ Components initialized');
     } catch (error) {
         console.error('❌ Failed to initialize components:', error);
     }
@@ -41,12 +49,12 @@ const init = async () => {
     // Refresh models list
     try {
         await refreshModels();
-        console.log('✅ Models loaded');
+        log('✅ Models loaded');
     } catch (error) {
-        console.warn('⚠️ Could not load models from API, using defaults');
+        warn('⚠️ Could not load models from API, using defaults');
     }
 
-    console.log('✅ Lampira AI ready!');
+    log('✅ Lampira AI ready!');
 };
 
 /**

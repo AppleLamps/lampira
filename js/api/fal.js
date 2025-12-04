@@ -9,14 +9,25 @@ import config from '../config.js';
 /**
  * Generate an image from a text prompt
  * @param {string} prompt - Text description of the image to generate
+ * @param {Object} options - Optional generation parameters (overrides config defaults)
  * @returns {Promise<Object>} - Response containing image URL
  */
-export const generateImage = async (prompt) => {
+export const generateImage = async (prompt, options = {}) => {
     if (!prompt || typeof prompt !== 'string') {
         throw new APIError('Prompt is required', 400);
     }
 
     const url = `${config.api.baseUrl}/image`;
+
+    // Merge config defaults with any overrides
+    const imageGenConfig = config.imageGen || {};
+    const params = {
+        prompt,
+        image_size: options.imageSize || imageGenConfig.imageSize || 'landscape_4_3',
+        num_inference_steps: options.numInferenceSteps || imageGenConfig.numInferenceSteps || 30,
+        num_images: options.numImages || imageGenConfig.numImages || 1,
+        enable_safety_checker: options.enableSafetyChecker ?? imageGenConfig.enableSafetyChecker ?? true
+    };
 
     try {
         const response = await fetch(url, {
@@ -24,7 +35,7 @@ export const generateImage = async (prompt) => {
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ prompt })
+            body: JSON.stringify(params)
         });
 
         if (!response.ok) {

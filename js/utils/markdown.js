@@ -59,9 +59,10 @@ const escapeHtml = (text) => {
 /**
  * Sanitize HTML using DOMPurify
  * @param {string} html - HTML to sanitize
+ * @param {string} originalMarkdown - Original markdown for safe fallback
  * @returns {string}
  */
-const sanitizeHtml = (html) => {
+const sanitizeHtml = (html, originalMarkdown = '') => {
     if (typeof window.DOMPurify !== 'undefined') {
         return window.DOMPurify.sanitize(html, {
             ADD_ATTR: ['target', 'rel'],  // Allow target and rel attributes for links
@@ -70,8 +71,10 @@ const sanitizeHtml = (html) => {
             FORBID_ATTR: ['onerror', 'onload', 'onclick']
         });
     }
-    // Fallback: return as-is if DOMPurify not available
-    return html;
+    // SECURITY: Fail safe - if DOMPurify is not available, return escaped text only
+    // This prevents XSS attacks when the CDN fails to load
+    console.error('DOMPurify not loaded. Rendering safe fallback (escaped text only).');
+    return escapeHtml(originalMarkdown).replace(/\n/g, '<br>');
 };
 
 /**
@@ -173,7 +176,7 @@ export const parseMarkdown = (markdown, sources = []) => {
     if (typeof window.marked !== 'undefined') {
         try {
             const html = window.marked.parse(cleanedMarkdown);
-            return sanitizeHtml(html);
+            return sanitizeHtml(html, cleanedMarkdown);
         } catch (error) {
             console.error('Marked parsing error:', error);
             return escapeHtml(cleanedMarkdown);

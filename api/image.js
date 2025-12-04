@@ -27,7 +27,13 @@ export default async function handler(req) {
 
     try {
         const body = await req.json();
-        const { prompt } = body;
+        const { 
+            prompt,
+            image_size = 'landscape_4_3',
+            num_inference_steps = 30,
+            num_images = 1,
+            enable_safety_checker = true
+        } = body;
 
         if (!prompt || typeof prompt !== 'string') {
             return new Response(JSON.stringify({ error: 'Prompt is required' }), {
@@ -35,6 +41,9 @@ export default async function handler(req) {
                 headers: { 'Content-Type': 'application/json' }
             });
         }
+
+        // Validate and clamp inference steps to safe range
+        const clampedSteps = Math.min(Math.max(Number(num_inference_steps) || 30, 10), 50);
 
         // Call Fal.ai API
         const response = await fetch('https://fal.run/fal-ai/z-image/turbo', {
@@ -45,10 +54,10 @@ export default async function handler(req) {
             },
             body: JSON.stringify({
                 prompt,
-                image_size: 'landscape_4_3',
-                num_inference_steps: 30,
-                num_images: 1,
-                enable_safety_checker: true
+                image_size,
+                num_inference_steps: clampedSteps,
+                num_images: Math.min(Number(num_images) || 1, 4), // Cap at 4 images max
+                enable_safety_checker: Boolean(enable_safety_checker)
             })
         });
 

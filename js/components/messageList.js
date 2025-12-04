@@ -15,6 +15,34 @@ let messageContainer;
 let brandTitle;
 let searchContainer;
 
+// Throttled renderers map for streaming performance
+const streamingRenderers = new Map();
+
+/**
+ * Throttle function - limits how often a function can be called
+ * @param {Function} func - Function to throttle
+ * @param {number} limit - Minimum time between calls in ms
+ * @returns {Function}
+ */
+const throttle = (func, limit) => {
+    let inThrottle;
+    let lastArgs;
+    return function(...args) {
+        lastArgs = args;
+        if (!inThrottle) {
+            func.apply(this, lastArgs);
+            inThrottle = true;
+            setTimeout(() => {
+                inThrottle = false;
+                // Call with latest args if there were updates during throttle
+                if (lastArgs !== args) {
+                    func.apply(this, lastArgs);
+                }
+            }, limit);
+        }
+    };
+};
+
 /**
  * Initialize message list component
  */
@@ -66,20 +94,31 @@ const handleChatUpdated = ({ history, message }) => {
 
 /**
  * Handle streaming event
+ * Uses throttled rendering to prevent UI stuttering on rapid token updates
  * @param {Object} data
  */
 const handleStreaming = ({ chunk, fullContent, message }) => {
     const messageEl = $(`[data-message-id="${message.id}"]`);
-    if (messageEl) {
-        removeClass(messageEl, 'processing');
-        addClass(messageEl, 'streaming');
-        const contentEl = $('.message-content', messageEl);
-        if (contentEl) {
-            contentEl.innerHTML = parseMarkdown(fullContent, message.sources || []);
-            // Note: We don't highlight during streaming for performance
-        }
-        scrollToBottom();
+    if (!messageEl) return;
+
+    removeClass(messageEl, 'processing');
+    addClass(messageEl, 'streaming');
+
+    const contentEl = $('.message-content', messageEl);
+    if (!contentEl) return;
+
+    // Create a throttled renderer for this message if it doesn't exist
+    if (!streamingRenderers.has(message.id)) {
+        const throttledUpdate = throttle((content, sources) => {
+            contentEl.innerHTML = parseMarkdown(content, sources);
+            scrollToBottom();
+        }, 100); // Update HTML max once every 100ms
+
+        streamingRenderers.set(message.id, throttledUpdate);
     }
+
+    // Call the throttled renderer with latest content
+    streamingRenderers.get(message.id)(fullContent, message.sources || []);
 };
 
 /**
@@ -102,6 +141,9 @@ const handleProcessing = ({ message }) => {
  * @param {Object} data
  */
 const handleComplete = ({ content, message, sources }) => {
+    // Clean up the throttled renderer for this message
+    streamingRenderers.delete(message.id);
+
     const messageEl = $(`[data-message-id="${message.id}"]`);
     if (messageEl) {
         removeClass(messageEl, 'streaming');
@@ -155,6 +197,8 @@ const handleSourcesUpdated = ({ message, sources }) => {
  * Handle chat cleared event
  */
 const handleChatCleared = () => {
+    // Clean up all throttled renderers
+    streamingRenderers.clear();
     empty(messageContainer);
     showWelcomeMode();
 };

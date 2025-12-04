@@ -79,6 +79,14 @@ Current date: ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 
     ui: {
         typingSpeed: 20, // ms per character for typing effect
         autoScrollDelay: 100
+    },
+
+    // Image generation settings
+    imageGen: {
+        imageSize: 'landscape_4_3', // 'square_hd', 'square', 'portrait_4_3', 'portrait_16_9', 'landscape_4_3', 'landscape_16_9'
+        numInferenceSteps: 30, // Higher = better quality but slower (10-50)
+        numImages: 1,
+        enableSafetyChecker: true
     }
 };
 

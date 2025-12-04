@@ -14,13 +14,13 @@ const config = {
     },
 
     // Default model configuration
-    defaultModel: 'x-ai/grok-4-fast',
+    defaultModel: 'x-ai/grok-4.1-fast',
 
     // Available models (can be fetched from API)
     models: [
         {
-            id: 'x-ai/grok-4-fast',
-            name: 'Grok 4 Fast',
+            id: 'x-ai/grok-4.1-fast',
+            name: 'Grok 4.1 Fast',
             description: 'X.AI fastest model',
             contextLength: 131072
         }

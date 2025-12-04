@@ -8,6 +8,13 @@ import eventBus, { Events } from '../utils/events.js';
 import { sendUserMessage, getIsLoading, cancelCurrentRequest } from '../services/chat.js';
 import { generate as generateImage, getIsGenerating } from '../services/imageGen.js';
 import { STOP_PATH, SEND_PATH, CLOSE_PATH, GLOBE_PATH, DOCUMENT_PATH } from '../utils/icons.js';
+import * as voiceInput from '../services/voiceInput.js';
+import {
+    FILE_TYPES,
+    processFiles,
+    extractImagesFromClipboard,
+    createAcceptString
+} from '../utils/fileHandler.js';
 
 // DOM Elements
 let searchBox;
@@ -38,14 +45,6 @@ const PLACEHOLDERS = {
     images: 'Describe an image to generate...'
 };
 
-// Supported image types
-const SUPPORTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
-const MAX_IMAGE_SIZE = 20 * 1024 * 1024; // 20MB max
-
-// Supported PDF type
-const SUPPORTED_PDF_TYPE = 'application/pdf';
-const MAX_PDF_SIZE = 50 * 1024 * 1024; // 50MB max for PDFs
-
 /**
  * Initialize search box component
  */
@@ -65,6 +64,9 @@ export const init = () => {
     // Create send/stop button
     createSendStopButton();
 
+    // Initialize voice input service
+    initVoiceInput();
+
     setupEventListeners();
 
     // Subscribe to events
@@ -74,6 +76,30 @@ export const init = () => {
     eventBus.on(Events.CHAT_CLEARED, () => {
         clearAttachments();
         if (searchInput) searchInput.focus();
+    });
+};
+
+/**
+ * Initialize voice input service with callbacks
+ */
+const initVoiceInput = () => {
+    voiceInput.init({
+        onResult: (transcript) => {
+            if (searchInput) {
+                searchInput.value = transcript;
+            }
+        },
+        onStart: () => {
+            if (voiceBtn) addClass(voiceBtn, 'recording');
+            if (searchInput) searchInput.placeholder = 'Listening...';
+        },
+        onEnd: () => {
+            if (voiceBtn) removeClass(voiceBtn, 'recording');
+            updatePlaceholder();
+        },
+        onError: (errorMessage) => {
+            showError(errorMessage);
+        }
     });
 };
 
@@ -400,53 +426,12 @@ const handleLoadingEnd = () => {
  * Handle voice button click
  */
 const handleVoiceClick = () => {
-    // Future: implement voice input using Web Speech API
-    console.log('Voice input not yet implemented');
-
-    // Check for browser support
-    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-        startVoiceRecognition();
-    } else {
+    if (!voiceInput.isSupported()) {
         showError('Voice input is not supported in your browser');
+        return;
     }
-};
 
-/**
- * Start voice recognition
- */
-const startVoiceRecognition = () => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const recognition = new SpeechRecognition();
-
-    recognition.continuous = false;
-    recognition.interimResults = true;
-    recognition.lang = 'en-US';
-
-    recognition.onstart = () => {
-        addClass(voiceBtn, 'recording');
-        searchInput.placeholder = 'Listening...';
-    };
-
-    recognition.onresult = (event) => {
-        const transcript = Array.from(event.results)
-            .map(result => result[0].transcript)
-            .join('');
-
-        searchInput.value = transcript;
-    };
-
-    recognition.onend = () => {
-        removeClass(voiceBtn, 'recording');
-        searchInput.placeholder = 'Ask a question...';
-    };
-
-    recognition.onerror = (event) => {
-        console.error('Speech recognition error:', event.error);
-        removeClass(voiceBtn, 'recording');
-        searchInput.placeholder = 'Ask a question...';
-    };
-
-    recognition.start();
+    voiceInput.toggle();
 };
 
 /**
@@ -455,7 +440,7 @@ const startVoiceRecognition = () => {
 const handleAttachClick = () => {
     const fileInput = document.createElement('input');
     fileInput.type = 'file';
-    fileInput.accept = SUPPORTED_IMAGE_TYPES.map(t => t.replace('image/', '.')).join(',') + ',image/*,.pdf,application/pdf';
+    fileInput.accept = createAcceptString(FILE_TYPES.IMAGE, FILE_TYPES.PDF);
     fileInput.multiple = true;
 
     fileInput.addEventListener('change', (e) => {
@@ -472,12 +457,12 @@ const handleAttachClick = () => {
 const handleImageUploadClick = () => {
     const fileInput = document.createElement('input');
     fileInput.type = 'file';
-    fileInput.accept = SUPPORTED_IMAGE_TYPES.map(t => t.replace('image/', '.')).join(',') + ',image/*';
+    fileInput.accept = createAcceptString(FILE_TYPES.IMAGE);
     fileInput.multiple = true;
 
     fileInput.addEventListener('change', (e) => {
         const files = Array.from(e.target.files);
-        handleImageFiles(files);
+        handleImageOnlyFiles(files);
     });
 
     fileInput.click();
@@ -491,108 +476,55 @@ const handlePaste = (e) => {
     const items = e.clipboardData?.items;
     if (!items) return;
 
-    const imageFiles = [];
-    for (const item of items) {
-        if (item.type.startsWith('image/')) {
-            const file = item.getAsFile();
-            if (file) imageFiles.push(file);
-        }
-    }
+    const imageFiles = extractImagesFromClipboard(items);
 
     if (imageFiles.length > 0) {
         e.preventDefault();
-        handleImageFiles(imageFiles);
+        handleImageOnlyFiles(imageFiles);
     }
 };
 
 /**
- * Handle mixed files - route to appropriate handler
+ * Handle mixed files - route to appropriate handler using fileHandler utility
  * @param {File[]} files
  */
-const handleFiles = (files) => {
-    const imageFiles = [];
-    const pdfFiles = [];
+const handleFiles = async (files) => {
+    const result = await processFiles(files);
 
-    for (const file of files) {
-        if (SUPPORTED_IMAGE_TYPES.includes(file.type)) {
-            imageFiles.push(file);
-        } else if (file.type === SUPPORTED_PDF_TYPE || file.name.toLowerCase().endsWith('.pdf')) {
-            pdfFiles.push(file);
-        } else {
-            showError(`Unsupported file type: ${file.type || file.name}`);
-        }
+    // Show any errors
+    for (const error of result.errors) {
+        showError(error);
     }
 
-    if (imageFiles.length > 0) {
-        handleImageFiles(imageFiles);
+    // Add processed images to preview
+    for (const { base64 } of result.images) {
+        addImageToPreview(base64);
     }
-    if (pdfFiles.length > 0) {
-        handlePDFFiles(pdfFiles);
+
+    // Add processed PDFs to preview
+    for (const { file, base64 } of result.pdfs) {
+        addPDFToPreview(base64, file.name);
     }
 };
 
 /**
- * Handle image files - validate and convert to base64
+ * Handle image-only files
  * @param {File[]} files
  */
-const handleImageFiles = async (files) => {
-    for (const file of files) {
-        // Validate file type
-        if (!SUPPORTED_IMAGE_TYPES.includes(file.type)) {
-            showError(`Unsupported image type: ${file.type}. Supported: PNG, JPEG, WebP, GIF`);
-            continue;
-        }
+const handleImageOnlyFiles = async (files) => {
+    const result = await processFiles(files);
 
-        // Validate file size
-        if (file.size > MAX_IMAGE_SIZE) {
-            showError(`Image too large: ${file.name}. Maximum size is 20MB.`);
-            continue;
-        }
-
-        try {
-            const base64 = await fileToBase64(file);
-            addImageToPreview(base64);
-        } catch (error) {
-            console.error('Failed to process image:', error);
-            showError(`Failed to process image: ${file.name}`);
+    // Show any errors (but filter to only image-related ones)
+    for (const error of result.errors) {
+        if (error.toLowerCase().includes('image')) {
+            showError(error);
         }
     }
-};
 
-/**
- * Handle PDF files - validate and convert to base64
- * @param {File[]} files
- */
-const handlePDFFiles = async (files) => {
-    for (const file of files) {
-        // Validate file size
-        if (file.size > MAX_PDF_SIZE) {
-            showError(`PDF too large: ${file.name}. Maximum size is 50MB.`);
-            continue;
-        }
-
-        try {
-            const base64 = await fileToBase64(file);
-            addPDFToPreview(base64, file.name);
-        } catch (error) {
-            console.error('Failed to process PDF:', error);
-            showError(`Failed to process PDF: ${file.name}`);
-        }
+    // Add processed images to preview
+    for (const { base64 } of result.images) {
+        addImageToPreview(base64);
     }
-};
-
-/**
- * Convert a File to base64 data URL
- * @param {File} file
- * @returns {Promise<string>}
- */
-const fileToBase64 = (file) => {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-    });
 };
 
 /**

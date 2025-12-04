@@ -152,13 +152,13 @@ const config = {
     },
 
     // Default model
-    defaultModel: 'x-ai/grok-4-fast',
+    defaultModel: 'x-ai/grok-4.1-fast',
 
     // Web search settings (used when web mode is enabled)
     webSearch: {
         enabled: false,        // Default to chat mode
         engine: 'native',      // 'native', 'exa', or undefined
-        maxResults: 10,
+        maxResults: 15,
         searchContextSize: 'high'  // 'low', 'medium', 'high'
     },
 

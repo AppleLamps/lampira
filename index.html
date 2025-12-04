@@ -163,7 +163,7 @@
                                     <circle cx="12" cy="12" r="10"></circle>
                                     <path d="M12 6v6l4 2"></path>
                                 </svg>
-                                <span class="model-name-text">Grok 4 Fast</span>
+                                <span class="model-name-text">Grok 4.1 Fast</span>
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12"
                                     height="12">
                                     <polyline points="6 9 12 15 18 9"></polyline>
@@ -197,11 +197,11 @@
     <!-- Notification Container -->
     <div class="notification-container" id="notification-container"></div>
 
-    <!-- External Libraries (CDN) -->
-    <!-- Markdown Parser -->
+    <!-- External Libraries -->
+    <!-- Markdown Parser (CDN) -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <!-- HTML Sanitizer -->
-    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
+    <!-- HTML Sanitizer (local - critical for security) -->
+    <script src="js/libs/purify.min.js"></script>
     <!-- Syntax Highlighting -->
     <link rel="stylesheet"
         href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css">

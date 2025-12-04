@@ -68,6 +68,7 @@ export const init = () => {
     eventBus.on(Events.CHAT_CLEARED, handleChatCleared);
     eventBus.on(Events.CHAT_LOADED, handleChatLoaded);
     eventBus.on(Events.AI_SUGGESTIONS, handleSuggestions);
+    eventBus.on(Events.AI_CANCELLED, handleAICancelled);
 
     // Render any existing messages
     const history = getHistory();
@@ -191,6 +192,14 @@ const handleSourcesUpdated = ({ message, sources }) => {
     if (messageEl && sources && sources.length > 0) {
         renderSources(messageEl, sources);
     }
+};
+
+/**
+ * Handle AI cancelled event (user clicked "Stop Generation")
+ * Clean up streaming renderers to prevent memory leaks
+ */
+const handleAICancelled = () => {
+    streamingRenderers.clear();
 };
 
 /**
